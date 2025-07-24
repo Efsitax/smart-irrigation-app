@@ -97,7 +97,7 @@ const styles = StyleSheet.create({
   },
   listContent: {
     paddingHorizontal: 8,
-    paddingBottom: 40,
+    paddingBottom: 90,
     gap: 12,
   },
   errorContainer: {

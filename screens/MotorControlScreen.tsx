@@ -1,5 +1,3 @@
-// src/screens/MotorControlScreen.tsx
-
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
@@ -11,7 +9,6 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect } from '@react-navigation/native';
 import { Power, Settings as SettingsIcon } from 'lucide-react-native';
-import { useThemeStore } from '../stores/theme-store';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import {
@@ -19,6 +16,9 @@ import {
   manualMotorControl,
   updateMotorState
 } from '../api/motorService';
+
+import { useSettingsStore } from '../stores/settings-store';
+import { useThemeStore } from '../stores/theme-store';
 
 import Button from '../components/Button';
 import Card from '../components/Card';
@@ -31,12 +31,17 @@ export default function MotorControlScreen() {
   const theme = scheme === 'dark' ? colors.dark : colors.light;
 
   const [isOn, setIsOn] = useState(false);
-  const [moistureThreshold, setMoistureThreshold] = useState(30);
-  const [manualDuration, setManualDuration] = useState(60);
-  const [autoDuration, setAutoDuration] = useState(120);
   const [autoControl, setAutoControl] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const {
+    moistureThreshold,
+    autoDurationSeconds,
+    manualDurationSeconds,
+    loadSettings,
+    saveSettings,
+  } = useSettingsStore();
 
   const fetchMotorState = async () => {
     try {
@@ -44,12 +49,10 @@ export default function MotorControlScreen() {
       const state = await getMotorState();
       setIsOn(state.isOn);
       setAutoControl(state.autoControl);
-      setMoistureThreshold(state.moistureThreshold);
-      setManualDuration(state.manualDurationSeconds);
-      setAutoDuration(state.autoDurationSeconds);
-      setIsLoading(false);
+      await loadSettings(); // sadece threshold/duration değerleri için
     } catch (err: any) {
       setError(err.message || 'Failed to fetch motor state');
+    } finally {
       setIsLoading(false);
     }
   };
@@ -81,8 +84,8 @@ export default function MotorControlScreen() {
       await updateMotorState({
         autoControl: val,
         moistureThreshold,
-        autoDurationSeconds: autoDuration,
-        manualDurationSeconds: manualDuration
+        autoDurationSeconds,
+        manualDurationSeconds,
       });
     } catch (err: any) {
       setError(err.message || 'Failed to update auto control setting');
@@ -94,11 +97,11 @@ export default function MotorControlScreen() {
   const handleSaveSettings = async () => {
     try {
       setIsLoading(true);
-      await updateMotorState({
+      await saveSettings({
         autoControl,
         moistureThreshold,
-        autoDurationSeconds: autoDuration,
-        manualDurationSeconds: manualDuration
+        autoDurationSeconds,
+        manualDurationSeconds,
       });
     } catch (err: any) {
       setError(err.message || 'Failed to save settings');
@@ -107,9 +110,11 @@ export default function MotorControlScreen() {
     }
   };
 
-  const motorInfo = isOn
-    ? { color: colors.primary, gradient: colors.gradients.primary, text: 'Running' }
-    : { color: colors.danger, gradient: colors.gradients.danger, text: 'Stopped' };
+  const motorInfo = autoControl
+    ? { color: colors.secondary, gradient: colors.gradients.secondary, text: 'Auto Mode' }
+    : isOn
+      ? { color: colors.primary,   gradient: colors.gradients.primary,   text: 'Running' }
+      : { color: colors.danger,    gradient: colors.gradients.danger,    text: 'Stopped' };
 
   return (
     <LinearGradient
@@ -150,10 +155,11 @@ export default function MotorControlScreen() {
                     </View>
                   </View>
                   <Button
-                    title="Start Motor"
+                    title={isOn ? "Motor Running" : "Start Motor"}
                     onPress={handleToggleMotor}
                     variant="glass"
                     loading={isLoading}
+                    disabled={isOn}
                     style={styles.motorButton}
                   />
                 </View>
@@ -178,23 +184,44 @@ export default function MotorControlScreen() {
                     <ThresholdInput
                       label="Moisture Threshold"
                       value={moistureThreshold}
-                      onValueChange={setMoistureThreshold}
+                      onValueChange={(val) =>
+                        saveSettings({
+                          autoControl,
+                          moistureThreshold: val,
+                          autoDurationSeconds,
+                          manualDurationSeconds,
+                        })
+                      }
                       min={0}
                       max={100}
                       unit="%"
                     />
                     <ThresholdInput
                       label="Auto Duration"
-                      value={autoDuration}
-                      onValueChange={setAutoDuration}
+                      value={autoDurationSeconds}
+                      onValueChange={(val) =>
+                        saveSettings({
+                          autoControl,
+                          moistureThreshold,
+                          autoDurationSeconds: val,
+                          manualDurationSeconds,
+                        })
+                      }
                       min={5}
                       max={600}
                       unit="sec"
                     />
                     <ThresholdInput
                       label="Manual Duration"
-                      value={manualDuration}
-                      onValueChange={setManualDuration}
+                      value={manualDurationSeconds}
+                      onValueChange={(val) =>
+                        saveSettings({
+                          autoControl,
+                          moistureThreshold,
+                          autoDurationSeconds,
+                          manualDurationSeconds: val,
+                        })
+                      }
                       min={5}
                       max={600}
                       unit="sec"
@@ -221,7 +248,7 @@ export default function MotorControlScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  scrollContent: { flexGrow: 1, padding: 20, paddingBottom: 40 },
+  scrollContent: { flexGrow: 1, padding: 20, paddingBottom: 90 },
   header: {
     flexDirection: 'row', justifyContent: 'space-between',
     alignItems: 'flex-start', marginBottom: 24,

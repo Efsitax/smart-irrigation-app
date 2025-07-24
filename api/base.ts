@@ -1,8 +1,3 @@
-import { Platform } from 'react-native';
-
-const DEV_HOST = __DEV__
-  // use your machine’s LAN IP here
-  ? 'http://192.168.1.107:8080'
-  : 'https://your.production.url';
+const DEV_HOST = 'http://ec2-3-121-40-175.eu-central-1.compute.amazonaws.com:8080';
 
 export const API_BASE = `${DEV_HOST}/api`;

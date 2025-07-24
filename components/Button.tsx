@@ -1,5 +1,15 @@
 import React from 'react';
-import { TouchableOpacity, Text, StyleSheet, ActivityIndicator, ViewStyle, TextStyle, ColorValue } from 'react-native';
+import {
+  TouchableOpacity,
+  Text,
+  StyleSheet,
+  ActivityIndicator,
+  ViewStyle,
+  TextStyle,
+  ColorValue,
+  Platform,
+  View,
+} from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import colors from '../constants/colors';
 
@@ -26,104 +36,50 @@ export default function Button({
   textStyle,
   gradientColors,
 }: ButtonProps) {
-  // Determine button styles based on variant
   const getButtonStyle = () => {
     switch (variant) {
       case 'primary':
-        return {
-          backgroundColor: colors.primary,
-          borderColor: colors.primary,
-        };
+        return { backgroundColor: colors.primary, borderColor: colors.primary };
       case 'secondary':
-        return {
-          backgroundColor: colors.secondary,
-          borderColor: colors.secondary,
-        };
+        return { backgroundColor: colors.secondary, borderColor: colors.secondary };
       case 'outline':
-        return {
-          backgroundColor: 'transparent',
-          borderColor: colors.primary,
-          borderWidth: 2,
-        };
+        return { backgroundColor: 'transparent', borderColor: colors.primary, borderWidth: 2 };
       case 'danger':
-        return {
-          backgroundColor: colors.danger,
-          borderColor: colors.danger,
-        };
+        return { backgroundColor: colors.danger, borderColor: colors.danger };
       case 'glass':
         return {
-          backgroundColor: 'rgba(255, 255, 255, 0.2)',
-          borderColor: 'rgba(255, 255, 255, 0.3)',
+          backgroundColor: 'rgba(255,255,255,0.2)',
+          borderColor: 'rgba(255,255,255,0.3)',
           borderWidth: 1,
         };
       default:
-        return {
-          backgroundColor: colors.primary,
-          borderColor: colors.primary,
-        };
+        return { backgroundColor: colors.primary, borderColor: colors.primary };
     }
   };
 
-  // Determine text color based on variant
-  const getTextColor = () => {
-    if (variant === 'outline') {
-      return colors.primary;
-    }
-    return '#FFFFFF';
-  };
+  const getTextColor = () => (variant === 'outline' ? colors.primary : '#FFFFFF');
 
-  // Determine button size
   const getButtonSize = () => {
     switch (size) {
       case 'small':
-        return {
-          paddingVertical: 12,
-          paddingHorizontal: 20,
-          minHeight: 44,
-        };
+        return { paddingVertical: 12, paddingHorizontal: 20, minHeight: 44 };
       case 'large':
-        return {
-          paddingVertical: 18,
-          paddingHorizontal: 36,
-          minHeight: 56,
-        };
+        return { paddingVertical: 18, paddingHorizontal: 36, minHeight: 56 };
       default:
-        return {
-          paddingVertical: 16,
-          paddingHorizontal: 28,
-          minHeight: 52,
-        };
+        return { paddingVertical: 16, paddingHorizontal: 28, minHeight: 52 };
     }
   };
 
-  // Determine text size
-  const getTextSize = () => {
-    switch (size) {
-      case 'small':
-        return 14;
-      case 'large':
-        return 18;
-      default:
-        return 16;
-    }
-  };
+  const getTextSize = () => (size === 'small' ? 14 : size === 'large' ? 18 : 16);
 
   const buttonContent = (
-    <>
-      {loading ? (
-        <ActivityIndicator color={getTextColor()} size="small" />
-      ) : (
-        <Text
-          style={[
-            styles.text,
-            { color: getTextColor(), fontSize: getTextSize() },
-            textStyle,
-          ]}
-        >
-          {title}
-        </Text>
-      )}
-    </>
+    loading ? (
+      <ActivityIndicator color={getTextColor()} size="small" />
+    ) : (
+      <Text style={[styles.text, { color: getTextColor(), fontSize: getTextSize() }, textStyle]}>
+        {title}
+      </Text>
+    )
   );
 
   if (variant === 'gradient') {
@@ -132,21 +88,30 @@ export default function Button({
         onPress={onPress}
         disabled={disabled || loading}
         activeOpacity={0.8}
-        style={[disabled && styles.disabled]}
+        style={[
+          styles.button,
+          { borderWidth: 0 },
+          style,
+          disabled && styles.disabled,
+        ]}
       >
         <LinearGradient
           colors={gradientColors || colors.gradients.primary}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 0 }}
-          style={[
-            styles.button,
-            styles.gradientButton,
-            getButtonSize(),
-            style,
-          ]}
+          style={[StyleSheet.absoluteFill, { borderRadius: 16 }]}
+        />
+        <View
+          style={{
+            paddingVertical: getButtonSize().paddingVertical,
+            paddingHorizontal: getButtonSize().paddingHorizontal,
+            minHeight: getButtonSize().minHeight,
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
         >
           {buttonContent}
-        </LinearGradient>
+        </View>
       </TouchableOpacity>
     );
   }
@@ -175,20 +140,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    shadowColor: "#000",
-    shadowOffset: {
-      width: 0,
-      height: 4,
-    },
-    shadowOpacity: 0.15,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  gradientButton: {
-    borderWidth: 0,
-    shadowOpacity: 0.25,
-    shadowRadius: 12,
-    elevation: 8,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.15,
+        shadowRadius: 8,
+      },
+    }),
   },
   text: {
     fontWeight: '700',

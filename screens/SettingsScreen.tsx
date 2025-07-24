@@ -5,7 +5,7 @@ import {
   StyleSheet,
   ScrollView,
   Switch,
-  useColorScheme
+  useColorScheme,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -19,13 +19,12 @@ import ThresholdInput from '../components/ThresholdInput';
 import colors from '../constants/colors';
 
 export default function SettingsScreen() {
-  const insets = useSafeAreaInsets(); // 👈 alt boşluk
+  const insets = useSafeAreaInsets();
   const systemScheme = useColorScheme() || 'light';
   const { theme, setTheme } = useThemeStore();
   const activeTheme = theme || systemScheme;
   const themeColors = activeTheme === 'dark' ? colors.dark : colors.light;
 
-  // MOTOR SETTINGS
   const {
     autoControl,
     moistureThreshold,
@@ -34,15 +33,14 @@ export default function SettingsScreen() {
     isLoading,
     error,
     loadSettings,
-    saveSettings
+    saveSettings,
   } = useSettingsStore();
 
-  const [localAutoControl, setLocalAutoControl] = useState(autoControl);
-  const [localMoistureThreshold, setLocalMoistureThreshold] = useState(moistureThreshold);
-  const [localAutoDuration, setLocalAutoDuration] = useState(autoDurationSeconds);
-  const [localManualDuration, setLocalManualDuration] = useState(manualDurationSeconds);
+  const [localAutoControl, setLocalAutoControl] = useState<boolean | null>(null);
+  const [localMoistureThreshold, setLocalMoistureThreshold] = useState<number | null>(null);
+  const [localAutoDuration, setLocalAutoDuration] = useState<number | null>(null);
+  const [localManualDuration, setLocalManualDuration] = useState<number | null>(null);
 
-  // TEMPERATURE SETTINGS
   const {
     temperatureThreshold,
     extraSeconds,
@@ -51,12 +49,12 @@ export default function SettingsScreen() {
     isLoading: tempLoading,
     error: tempError,
     fetchTemperatureConfig,
-    saveTemperatureConfig
+    saveTemperatureConfig,
   } = useTemperatureStore();
 
-  const [localTempThreshold, setLocalTempThreshold] = useState(temperatureThreshold);
-  const [localExtraDuration, setLocalExtraDuration] = useState(extraSeconds);
-  const [localActive, setLocalActive] = useState(active);
+  const [localTempThreshold, setLocalTempThreshold] = useState<number | null>(null);
+  const [localExtraDuration, setLocalExtraDuration] = useState<number | null>(null);
+  const [localActive, setLocalActive] = useState<boolean | null>(null);
 
   useEffect(() => {
     loadSettings();
@@ -64,32 +62,47 @@ export default function SettingsScreen() {
   }, []);
 
   useEffect(() => {
-    setLocalAutoControl(autoControl);
-    setLocalMoistureThreshold(moistureThreshold);
-    setLocalAutoDuration(autoDurationSeconds);
-    setLocalManualDuration(manualDurationSeconds);
+    if (autoControl !== null) setLocalAutoControl(autoControl);
+    if (moistureThreshold !== null) setLocalMoistureThreshold(moistureThreshold);
+    if (autoDurationSeconds !== null) setLocalAutoDuration(autoDurationSeconds);
+    if (manualDurationSeconds !== null) setLocalManualDuration(manualDurationSeconds);
   }, [autoControl, moistureThreshold, autoDurationSeconds, manualDurationSeconds]);
 
   useEffect(() => {
-    setLocalTempThreshold(temperatureThreshold);
-    setLocalExtraDuration(extraSeconds);
-    setLocalActive(active);
+    if (temperatureThreshold !== null) setLocalTempThreshold(temperatureThreshold);
+    if (extraSeconds !== null) setLocalExtraDuration(extraSeconds);
+    if (active !== null) setLocalActive(active);
   }, [temperatureThreshold, extraSeconds, active]);
 
   const handleMotorSave = () => {
+    if (
+      localAutoControl === null ||
+      localMoistureThreshold === null ||
+      localAutoDuration === null ||
+      localManualDuration === null
+    )
+      return;
+
     saveSettings({
       autoControl: localAutoControl,
       moistureThreshold: localMoistureThreshold,
       autoDurationSeconds: localAutoDuration,
-      manualDurationSeconds: localManualDuration
+      manualDurationSeconds: localManualDuration,
     });
   };
 
   const handleTempSave = () => {
+    if (
+      localTempThreshold === null ||
+      localExtraDuration === null ||
+      localActive === null
+    )
+      return;
+
     saveTemperatureConfig({
       threshold: localTempThreshold,
       extraSeconds: localExtraDuration,
-      active: localActive
+      active: localActive,
     });
   };
 
@@ -102,7 +115,7 @@ export default function SettingsScreen() {
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: themeColors.background }}>
       <ScrollView
-        contentContainerStyle={[styles.container, { paddingBottom: 40 + insets.bottom }]}
+        contentContainerStyle={[styles.container, { paddingBottom: 90 + insets.bottom }]}
         style={{ backgroundColor: themeColors.background }}
       >
         <Text style={[styles.title, { color: themeColors.text }]}>Settings</Text>
@@ -130,40 +143,50 @@ export default function SettingsScreen() {
           <Card>
             <Text style={[styles.sectionTitle, { color: themeColors.text }]}>Motor Control</Text>
 
-            <View style={styles.settingRow}>
-              <Text style={[styles.settingLabel, { color: themeColors.text }]}>Auto Control</Text>
-              <Switch
-                value={localAutoControl}
-                onValueChange={setLocalAutoControl}
-                trackColor={{ false: themeColors.border, true: colors.primary }}
-                thumbColor="#FFF"
-              />
-            </View>
+            {localAutoControl !== null && (
+              <View style={styles.settingRow}>
+                <Text style={[styles.settingLabel, { color: themeColors.text }]}>Auto Control</Text>
+                <Switch
+                  value={localAutoControl}
+                  onValueChange={setLocalAutoControl}
+                  trackColor={{ false: themeColors.border, true: colors.primary }}
+                  thumbColor="#FFF"
+                />
+              </View>
+            )}
 
-            <ThresholdInput
-              label="Moisture Threshold (%)"
-              value={localMoistureThreshold}
-              onValueChange={setLocalMoistureThreshold}
-              min={0}
-              max={100}
-              unit="%"
-            />
-            <ThresholdInput
-              label="Auto Duration"
-              value={localAutoDuration}
-              onValueChange={setLocalAutoDuration}
-              min={5}
-              max={600}
-              unit="sec"
-            />
-            <ThresholdInput
-              label="Manual Duration"
-              value={localManualDuration}
-              onValueChange={setLocalManualDuration}
-              min={5}
-              max={600}
-              unit="sec"
-            />
+            {localMoistureThreshold !== null && (
+              <ThresholdInput
+                label="Moisture Threshold (%)"
+                value={localMoistureThreshold}
+                onValueChange={setLocalMoistureThreshold}
+                min={0}
+                max={100}
+                unit="%"
+              />
+            )}
+
+            {localAutoDuration !== null && (
+              <ThresholdInput
+                label="Auto Duration"
+                value={localAutoDuration}
+                onValueChange={setLocalAutoDuration}
+                min={5}
+                max={600}
+                unit="sec"
+              />
+            )}
+
+            {localManualDuration !== null && (
+              <ThresholdInput
+                label="Manual Duration"
+                value={localManualDuration}
+                onValueChange={setLocalManualDuration}
+                min={5}
+                max={600}
+                unit="sec"
+              />
+            )}
 
             <Button
               title="Save Motor Settings"
@@ -183,32 +206,39 @@ export default function SettingsScreen() {
           <Card>
             <Text style={[styles.sectionTitle, { color: themeColors.text }]}>Temperature Control</Text>
 
-            <View style={styles.settingRow}>
-              <Text style={[styles.settingLabel, { color: themeColors.text }]}>Active</Text>
-              <Switch
-                value={localActive}
-                onValueChange={setLocalActive}
-                trackColor={{ false: themeColors.border, true: colors.primary }}
-                thumbColor="#FFF"
-              />
-            </View>
+            {localActive !== null && (
+              <View style={styles.settingRow}>
+                <Text style={[styles.settingLabel, { color: themeColors.text }]}>Active</Text>
+                <Switch
+                  value={localActive}
+                  onValueChange={setLocalActive}
+                  trackColor={{ false: themeColors.border, true: colors.primary }}
+                  thumbColor="#FFF"
+                />
+              </View>
+            )}
 
-            <ThresholdInput
-              label="Temperature Threshold (°C)"
-              value={localTempThreshold}
-              onValueChange={setLocalTempThreshold}
-              min={0}
-              max={60}
-              unit="°C"
-            />
-            <ThresholdInput
-              label="Extra Duration"
-              value={localExtraDuration}
-              onValueChange={setLocalExtraDuration}
-              min={0}
-              max={300}
-              unit="sec"
-            />
+            {localTempThreshold !== null && (
+              <ThresholdInput
+                label="Temperature Threshold (°C)"
+                value={localTempThreshold}
+                onValueChange={setLocalTempThreshold}
+                min={0}
+                max={60}
+                unit="°C"
+              />
+            )}
+
+            {localExtraDuration !== null && (
+              <ThresholdInput
+                label="Extra Duration"
+                value={localExtraDuration}
+                onValueChange={setLocalExtraDuration}
+                min={0}
+                max={300}
+                unit="sec"
+              />
+            )}
 
             <Button
               title="Save Temperature Settings"
@@ -241,48 +271,19 @@ export default function SettingsScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flexGrow: 1,
-    padding: 16
-  },
-  title: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    marginBottom: 16
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    marginBottom: 12
-  },
+  container: { flexGrow: 1, padding: 16 },
+  title: { fontSize: 24, fontWeight: 'bold', marginBottom: 16 },
+  sectionTitle: { fontSize: 18, fontWeight: '600', marginBottom: 12 },
   settingRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginVertical: 8
+    marginVertical: 8,
   },
-  settingLabel: {
-    fontSize: 16,
-    fontWeight: '500'
-  },
-  saveButton: {
-    marginTop: 16
-  },
-  lastUpdated: {
-    fontSize: 12,
-    textAlign: 'center',
-    marginTop: 8
-  },
-  errorText: {
-    fontSize: 16,
-    textAlign: 'center'
-  },
-  aboutText: {
-    fontSize: 16,
-    fontWeight: '500',
-    marginBottom: 4
-  },
-  aboutSubtext: {
-    fontSize: 14
-  }
+  settingLabel: { fontSize: 16, fontWeight: '500' },
+  saveButton: { marginTop: 16 },
+  lastUpdated: { fontSize: 12, textAlign: 'center', marginTop: 8 },
+  errorText: { fontSize: 16, textAlign: 'center' },
+  aboutText: { fontSize: 16, fontWeight: '500', marginBottom: 4 },
+  aboutSubtext: { fontSize: 14 },
 });

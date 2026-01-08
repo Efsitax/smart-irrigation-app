@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TextInput } from 'react-native';
 import colors from '../constants/colors';
 import { useThemeStore } from '../stores/theme-store';
@@ -53,6 +53,12 @@ export default function ThresholdInput({
   const handleFocus = () => {
     setIsFocused(true);
   };
+
+  useEffect(() => {
+    if (!isFocused) {
+        setInputValue(value.toString());
+    }
+  }, [value, isFocused]);
 
   return (
     <View style={styles.container}>

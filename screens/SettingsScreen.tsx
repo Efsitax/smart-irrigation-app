@@ -61,16 +61,16 @@ export default function SettingsScreen() {
   }, []);
 
   useEffect(() => {
-    setLocalAutoControl(autoControl);
-    setLocalMoistureThreshold(moistureThreshold);
-    setLocalAutoDuration(autoDurationSeconds);
-    setLocalManualDuration(manualDurationSeconds);
+    if (autoControl !== undefined) setLocalAutoControl(autoControl);
+    if (moistureThreshold !== undefined) setLocalMoistureThreshold(moistureThreshold);
+    if (autoDurationSeconds !== undefined) setLocalAutoDuration(autoDurationSeconds);
+    if (manualDurationSeconds !== undefined) setLocalManualDuration(manualDurationSeconds);
   }, [autoControl, moistureThreshold, autoDurationSeconds, manualDurationSeconds]);
 
   useEffect(() => {
-    setLocalTempThreshold(temperatureThreshold);
-    setLocalExtraDuration(extraSeconds);
-    setLocalActive(active);
+    if (temperatureThreshold !== undefined) setLocalTempThreshold(temperatureThreshold);
+    if (extraSeconds !== undefined) setLocalExtraDuration(extraSeconds);
+    if (active !== undefined) setLocalActive(active);
   }, [temperatureThreshold, extraSeconds, active]);
 
   const handleMotorSave = async () => {
@@ -81,11 +81,26 @@ export default function SettingsScreen() {
       localManualDuration === null
     ) return;
 
+    const newMoisture = Number(localMoistureThreshold);
+    const newAutoDur = Number(localAutoDuration);
+    const newManualDur = Number(localManualDuration);
+
+    if (isNaN(newMoisture) || isNaN(newAutoDur) || isNaN(newManualDur)) {
+      Alert.alert("Invalid Input", "Please enter valid numbers.");
+      return;
+    }
+
+    if (newAutoDur < 5 || newManualDur < 5) {
+      Alert.alert("Validation Error", "Duration must be at least 5 seconds.");
+      return;
+    }
+
+    // 3. Save
     await saveSettings({
       autoControl: localAutoControl,
-      moistureThreshold: localMoistureThreshold,
-      autoDurationSeconds: localAutoDuration,
-      manualDurationSeconds: localManualDuration,
+      moistureThreshold: newMoisture,
+      autoDurationSeconds: newAutoDur,
+      manualDurationSeconds: newManualDur,
     });
     Alert.alert("Success", "Motor settings saved.");
   };
@@ -97,9 +112,17 @@ export default function SettingsScreen() {
       localActive === null
     ) return;
 
+    const newThreshold = Number(localTempThreshold);
+    const newExtra = Number(localExtraDuration);
+
+    if (isNaN(newThreshold) || isNaN(newExtra)) {
+      Alert.alert("Invalid Input", "Please enter valid numbers.");
+      return;
+    }
+
     await saveTemperatureConfig({
-      threshold: localTempThreshold,
-      extraSeconds: localExtraDuration,
+      threshold: newThreshold,
+      extraSeconds: newExtra,
       active: localActive,
     });
     Alert.alert("Success", "Temperature settings saved.");

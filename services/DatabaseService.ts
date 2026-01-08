@@ -206,14 +206,18 @@ export const getMotorState = (): MotorState => {
   };
 };
 
+// BURADA GÜNCELLEME: Değerlerin geçerli sayı olup olmadığını kontrol ediyoruz.
 export const updateMotorState = (settings: Partial<MotorState>) => {
   if (settings.autoControl !== undefined) 
     db.runSync('UPDATE motor_state SET auto_control = ? WHERE id = 1', [settings.autoControl ? 1 : 0]);
   
-  if (settings.moistureThreshold !== undefined)
+  if (settings.moistureThreshold !== undefined && !isNaN(settings.moistureThreshold))
     db.runSync('UPDATE motor_state SET moisture_threshold = ? WHERE id = 1', [settings.moistureThreshold]);
-    
-  if (settings.manualDurationSeconds !== undefined)
+  
+  if (settings.autoDurationSeconds !== undefined && !isNaN(settings.autoDurationSeconds))
+    db.runSync('UPDATE motor_state SET auto_duration_seconds = ? WHERE id = 1', [settings.autoDurationSeconds]);
+  
+  if (settings.manualDurationSeconds !== undefined && !isNaN(settings.manualDurationSeconds))
     db.runSync('UPDATE motor_state SET manual_duration_seconds = ? WHERE id = 1', [settings.manualDurationSeconds]);
 };
 
@@ -233,7 +237,7 @@ export const updateSchedule = (id: number, schedule: Partial<IrrigationSchedule>
   const args: any[] = [];
 
   if (schedule.time !== undefined) { updates.push("time = ?"); args.push(schedule.time); }
-  if (schedule.days !== undefined) { updates.push("days = ?"); args.push(schedule.days); } // JSON String
+  if (schedule.days !== undefined) { updates.push("days = ?"); args.push(schedule.days); } 
   if (schedule.durationInSeconds !== undefined) { updates.push("duration_in_seconds = ?"); args.push(schedule.durationInSeconds); }
   if (schedule.repeatDaily !== undefined) { updates.push("repeat_daily = ?"); args.push(schedule.repeatDaily ? 1 : 0); }
   if (schedule.specificDate !== undefined) { updates.push("specific_date = ?"); args.push(schedule.specificDate); }
@@ -246,10 +250,10 @@ export const updateSchedule = (id: number, schedule: Partial<IrrigationSchedule>
 };
 
 export const updateTemperatureConfig = (config: Partial<TemperatureConfig>) => {
-  if (config.threshold !== undefined)
+  if (config.threshold !== undefined && !isNaN(config.threshold))
     db.runSync('UPDATE temperature_config SET threshold = ? WHERE id = 1', [config.threshold]);
   
-  if (config.extraSeconds !== undefined)
+  if (config.extraSeconds !== undefined && !isNaN(config.extraSeconds))
     db.runSync('UPDATE temperature_config SET extra_seconds = ? WHERE id = 1', [config.extraSeconds]);
   
   if (config.active !== undefined)

@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -26,17 +26,27 @@ export default function MotorControlScreen() {
   const scheme = useThemeStore((state) => state.theme);
   const theme = scheme === 'dark' ? colors.dark : colors.light;
 
-  // connectionStatus ve clearErrors eklendi
   const { sendCommand, connectedDevice, telemetry, connectionStatus, clearErrors } = useBluetoothStore();
-  const isOn = telemetry?.isPumpOn || false; 
   
+  // Gerçek telemetri verisi
+  const realIsOn = telemetry?.isPumpOn || false;
+
+  // UI Durumu için State
+  const [optimisticOn, setOptimisticOn] = useState(false);
+  
+  // Timer referansı (Bileşen yenilense bile kaybolmaz)
+  const timerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Ekranda gösterilecek durum: Ya gerçekten açıktır ya da biz açmışızdır.
+  const displayIsOn = realIsOn || optimisticOn;
+
   const [autoControl, setAutoControl] = useState(false);
   const [moistureThreshold, setMoistureThreshold] = useState(30);
   const [autoDurationSeconds, setAutoDurationSeconds] = useState(10);
   const [manualDurationSeconds, setManualDurationSeconds] = useState(10);
   
   const [isLoading, setIsLoading] = useState(false);
-  const [localError, setLocalError] = useState<string | null>(null); // İsim çakışmasını önlemek için localError
+  const [localError, setLocalError] = useState<string | null>(null);
 
   const fetchSettings = () => {
     try {
@@ -55,58 +65,80 @@ export default function MotorControlScreen() {
   useFocusEffect(
     useCallback(() => {
       fetchSettings();
+      // Sayfadan çıkıldığında timer'ı temizle
+      return () => {
+        if (timerRef.current) clearTimeout(timerRef.current);
+      };
     }, [])
   );
 
-  // Bluetooth Bağlantı Hatalarını Dinle (Simülasyon veya Gerçek)
+  // Eğer cihazdan gerçekten "Açıldı" bilgisi gelirse optimistic state'i kapatabiliriz,
+  // çünkü artık realIsOn true olacak ve UI açık kalmaya devam edecek.
   useEffect(() => {
-    if (connectionStatus.status === 'error' && connectionStatus.message) {
-      Alert.alert("Connection Error", connectionStatus.message, [
-        { text: "OK", onPress: clearErrors }
-      ]);
+    if (realIsOn) {
+      // Gerçek veri geldiyse bizim sanal state'e gerek kalmadı, ama 
+      // titreme olmasın diye hemen kapatmıyoruz, timer halletsin.
+      // Burası boş bırakıldı bilerek.
     }
-  }, [connectionStatus]);
+  }, [realIsOn]);
 
   const handleToggleMotor = async () => {
+    // 1. Bağlantı Kontrolü
     if (!connectedDevice) {
-        Alert.alert("Connection Error", "Device not connected. Please connect via Bluetooth first.");
+        Alert.alert("Bağlantı Hatası", "Cihaz bağlı değil. Lütfen önce Bluetooth ile bağlanın.");
         return;
     }
 
-    if (isOn) return;
+    if (displayIsOn) {
+        Alert.alert("Bilgi", "Motor zaten çalışıyor.");
+        return;
+    }
+
+    console.log("Motor başlatılıyor... Süre:", manualDurationSeconds);
+
+    // 2. UI'ı ANINDA Güncelle (Optimistic Update)
+    // Hata olsa bile kullanıcı butona bastığını hissetmeli
+    setOptimisticOn(true);
+    setIsLoading(true);
+    setLocalError(null);
+
+    // Varsa eski timer'ı temizle
+    if (timerRef.current) clearTimeout(timerRef.current);
 
     try {
-      setIsLoading(true);
-      setLocalError(null);
-
-      // Komut gönder (Store'daki simülasyon veya gerçek BLE)
+      // 3. Komutu Gönder
       await sendCommand("ON", manualDurationSeconds);
       
-      // Log kaydı oluştur
-      try {
-          addMotorLog({
-              startTime: new Date().toISOString(),
-              durationSeconds: manualDurationSeconds,
-              moistureAtTrigger: telemetry.moisture || 0,
-              mode: 'MANUAL'
-          });
-      } catch (e) {
-          console.log("Log error:", e);
-      }
+      // 4. Log Kaydı
+      addMotorLog({
+          startTime: new Date().toISOString(),
+          durationSeconds: manualDurationSeconds,
+          moistureAtTrigger: telemetry?.moisture || 0,
+          mode: 'MANUAL'
+      });
 
-      fetchSettings();
+      console.log("Komut gönderildi, timer başlatılıyor.");
+
+      // 5. Süre bittiğinde UI'ı kapatacak Timer
+      // Süre + 1.5 saniye ekliyoruz ki ağ gecikmesi varsa hemen kapanmasın
+      timerRef.current = setTimeout(() => {
+        console.log("Süre doldu, motor durduruluyor (UI).");
+        setOptimisticOn(false);
+      }, (manualDurationSeconds * 1000) + 1500);
       
     } catch (err: any) {
-      setLocalError(err.message || 'Failed to send command');
+      console.error("Komut hatası:", err);
+      // Hata durumunda UI'ı geri al
+      setOptimisticOn(false);
+      setLocalError(err.message || 'Komut gönderilemedi');
+      Alert.alert("Hata", "Komut gönderilemedi: " + (err.message || "Bilinmeyen hata"));
     } finally {
-      // Simülasyon modunda komut çok hızlı dönebilir, UI akışını bozmaz.
       setIsLoading(false);
     }
   };
 
   const saveLocalSettings = (newSettings: any) => {
       try {
-          // Setting saving is instantaneous mostly, but kept async pattern if needed
           updateMotorState(newSettings);
           
           if (newSettings.autoControl !== undefined) setAutoControl(newSettings.autoControl);
@@ -115,7 +147,7 @@ export default function MotorControlScreen() {
           if (newSettings.manualDurationSeconds !== undefined) setManualDurationSeconds(newSettings.manualDurationSeconds);
           
       } catch (err: any) {
-          setLocalError("Failed to save settings");
+          setLocalError("Ayarlar kaydedilemedi");
       }
   }
 
@@ -125,7 +157,7 @@ export default function MotorControlScreen() {
 
   const motorInfo = autoControl
     ? { color: colors.secondary, gradient: colors.gradients.secondary, text: 'Auto Mode' }
-    : isOn
+    : displayIsOn
       ? { color: colors.primary,   gradient: colors.gradients.primary,   text: 'Running' }
       : { color: colors.danger,    gradient: colors.gradients.danger,    text: 'Stopped' };
 
@@ -149,86 +181,85 @@ export default function MotorControlScreen() {
             </View>
           </View>
 
-          {localError ? (
+          {localError && (
             <Card variant="elevated">
               <View style={styles.errorContainer}>
                 <Text style={[styles.errorText, { color: colors.danger }]}>{localError}</Text>
               </View>
             </Card>
-          ) : (
-            <>
-              <Card variant="gradient" gradientColors={motorInfo.gradient}>
-                <View style={styles.motorStatusContainer}>
-                  <View style={styles.motorStatusHeader}>
-                    <View style={styles.motorIcon}>
-                      <Power size={32} color="white" />
-                    </View>
-                    <View style={styles.motorStatusInfo}>
-                      <Text style={styles.motorStatusTitle}>Motor Status</Text>
-                      <Text style={styles.motorStatusValue}>{motorInfo.text}</Text>
-                    </View>
-                  </View>
-                  <Button
-                    title={isOn ? "Motor Running" : "Start Motor"}
-                    onPress={handleToggleMotor}
-                    variant="glass"
-                    loading={isLoading || connectionStatus.status === 'sending'}
-                    disabled={isOn || autoControl} 
-                    style={styles.motorButton}
-                  />
-                  {autoControl && (
-                      <Text style={{color: 'rgba(255,255,255,0.7)', fontSize: 12, marginTop: 8}}>
-                          Disable Auto Mode to control manually
-                      </Text>
-                  )}
-                </View>
-              </Card>
-
-              <Card variant="elevated">
-                <View style={styles.autoControlHeader}>
-                  <View style={styles.autoControlTitleContainer}>
-                    <SettingsIcon size={20} color={colors.secondary} />
-                    <Text style={[styles.sectionTitle, { color: theme.text }]}>Auto Control</Text>
-                  </View>
-                  <Switch
-                    value={autoControl}
-                    onValueChange={handleToggleAutoControl}
-                    trackColor={{ false: theme.border, true: colors.primary }}
-                    thumbColor="#FFFFFF"
-                  />
-                </View>
-
-                <View style={[styles.settingsContainer, !autoControl && styles.disabledSettings]}>
-                  <View style={styles.settingsGrid}>
-                    <ThresholdInput
-                      label="Moisture Threshold"
-                      value={moistureThreshold}
-                      onValueChange={(val) => saveLocalSettings({ moistureThreshold: val })}
-                      min={0}
-                      max={100}
-                      unit="%"
-                    />
-                    <ThresholdInput
-                      label="Auto Duration"
-                      value={autoDurationSeconds}
-                      onValueChange={(val) => saveLocalSettings({ autoDurationSeconds: val })}
-                      min={5}
-                      max={600}
-                      unit="sec"
-                    />
-                    <ThresholdInput
-                      label="Manual Duration"
-                      value={manualDurationSeconds}
-                      onValueChange={(val) => saveLocalSettings({ manualDurationSeconds: val })}
-                      min={5}
-                      max={600}
-                      unit="sec"
-                    />
-                  </View>
-                </View>
-              </Card>
-            </>
           )}
+
+          <Card variant="gradient" gradientColors={motorInfo.gradient}>
+            <View style={styles.motorStatusContainer}>
+                <View style={styles.motorStatusHeader}>
+                <View style={styles.motorIcon}>
+                    <Power size={32} color="white" />
+                </View>
+                <View style={styles.motorStatusInfo}>
+                    <Text style={styles.motorStatusTitle}>Motor Status</Text>
+                    <Text style={styles.motorStatusValue}>{motorInfo.text}</Text>
+                </View>
+                </View>
+                <Button
+                title={displayIsOn ? `Running (${manualDurationSeconds}s)` : "Start Motor"}
+                onPress={handleToggleMotor}
+                variant="glass"
+                loading={isLoading} // Sadece loading true ise döner
+                disabled={displayIsOn || autoControl} 
+                style={styles.motorButton}
+                />
+                {autoControl && (
+                    <Text style={{color: 'rgba(255,255,255,0.7)', fontSize: 12, marginTop: 8}}>
+                        Disable Auto Mode to control manually
+                    </Text>
+                )}
+            </View>
+          </Card>
+
+          <Card variant="elevated">
+            <View style={styles.autoControlHeader}>
+                <View style={styles.autoControlTitleContainer}>
+                <SettingsIcon size={20} color={colors.secondary} />
+                <Text style={[styles.sectionTitle, { color: theme.text }]}>Auto Control</Text>
+                </View>
+                <Switch
+                value={autoControl}
+                onValueChange={handleToggleAutoControl}
+                trackColor={{ false: theme.border, true: colors.primary }}
+                thumbColor="#FFFFFF"
+                />
+            </View>
+
+            <View style={[styles.settingsContainer, !autoControl && styles.disabledSettings]}>
+                <View style={styles.settingsGrid}>
+                <ThresholdInput
+                    label="Moisture Threshold"
+                    value={moistureThreshold}
+                    onValueChange={(val) => saveLocalSettings({ moistureThreshold: val })}
+                    min={0}
+                    max={100}
+                    unit="%"
+                />
+                <ThresholdInput
+                    label="Auto Duration"
+                    value={autoDurationSeconds}
+                    onValueChange={(val) => saveLocalSettings({ autoDurationSeconds: val })}
+                    min={5}
+                    max={600}
+                    unit="sec"
+                />
+                <ThresholdInput
+                    label="Manual Duration"
+                    value={manualDurationSeconds}
+                    onValueChange={(val) => saveLocalSettings({ manualDurationSeconds: val })}
+                    min={5}
+                    max={600}
+                    unit="sec"
+                />
+                </View>
+            </View>
+          </Card>
+
         </ScrollView>
       </SafeAreaView>
     </LinearGradient>

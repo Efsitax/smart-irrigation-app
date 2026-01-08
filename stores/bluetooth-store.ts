@@ -4,7 +4,7 @@ import { Platform, PermissionsAndroid, Alert } from 'react-native';
 import { decode as atob, encode as btoa } from 'base-64';
 import { BluetoothDevice, ConnectionStatus } from '../types/bluetooth';
 
-const SIMULATION_MODE = true;
+const SIMULATION_MODE = false;
 
 const SERVICE_UUID = "6E400001-B5A3-F393-E0A9-E50E24DCCA9E";
 const RX_UUID      = "6E400002-B5A3-F393-E0A9-E50E24DCCA9E"; 
@@ -132,7 +132,6 @@ export const useBluetoothStore = create<BluetoothState>((set, get) => ({
 
     set({ connectionStatus: { status: 'connecting', message: 'Connecting...' } });
 
-    // --- SIMULATION MODE ---
     if (SIMULATION_MODE) {
         setTimeout(() => {
             set({ 
@@ -176,6 +175,8 @@ export const useBluetoothStore = create<BluetoothState>((set, get) => ({
          set({ connectionStatus: { status: 'idle' } });
       }, 2000);
 
+      let dataBuffer = ""; 
+
       discovered.monitorCharacteristicForService(
         SERVICE_UUID,
         TX_UUID,
@@ -191,21 +192,34 @@ export const useBluetoothStore = create<BluetoothState>((set, get) => ({
           }
 
           const rawData = atob(characteristic?.value || '');
-          try {
-            if (rawData.includes('{') && rawData.includes('}')) {
-               const cleanJson = rawData.substring(rawData.indexOf('{'), rawData.lastIndexOf('}') + 1);
-               const parsed = JSON.parse(cleanJson);
+          dataBuffer += rawData;
 
-               set((state) => ({
-                 telemetry: {
-                   moisture: parsed.moisture ?? state.telemetry.moisture,
-                   battery: parsed.battery ?? state.telemetry.battery,
-                   isPumpOn: parsed.command === 'ON' ? true : (parsed.command === 'OFF' ? false : state.telemetry.isPumpOn)
-                 }
-               }));
-            }
-          } catch (e) {
-            console.log('JSON Parse Error:', e);
+          if (dataBuffer.includes('\n')) {
+             const parts = dataBuffer.split('\n');
+             dataBuffer = parts.pop() || ""; 
+
+             for (const part of parts) {
+               if (part.trim().length === 0) continue;
+
+               try {
+                 const parsed = JSON.parse(part);
+                 console.log("Parsed Data:", parsed);
+
+                 const isPumpStarted = parsed.command === 'ON' || parsed.status === 'Motor STARTED';
+                 const isPumpStopped = parsed.command === 'OFF';
+
+                 set((state) => ({
+                   telemetry: {
+                     moisture: parsed.m ?? state.telemetry.moisture,
+                     battery: parsed.b ?? state.telemetry.battery,
+                     isPumpOn: isPumpStarted ? true : (isPumpStopped ? false : state.telemetry.isPumpOn)
+                   }
+                 }));
+
+               } catch (e) {
+                 console.log('JSON Parse Error:', e, 'Raw Part:', part);
+               }
+             }
           }
         }
       );

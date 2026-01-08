@@ -5,11 +5,6 @@ export interface BluetoothDevice {
   isConnectable?: boolean;
 }
 
-export interface WiFiCredentials {
-  ssid: string;
-  password: string;
-}
-
 export interface ConnectionStatus {
   status: 'idle' | 'scanning' | 'connecting' | 'sending' | 'success' | 'error';
   message?: string;

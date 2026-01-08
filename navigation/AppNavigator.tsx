@@ -1,23 +1,9 @@
-// src/navigation/AppNavigator.tsx
-
-export type RootStackParamList = {
-  HomeTabs: undefined;
-  NewSchedule: undefined;
-  EditSchedule: { id: number };
-};
-
 import 'react-native-gesture-handler';
 import React from 'react';
 import { useColorScheme, Platform } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
-import {
-  createNativeStackNavigator,
-  NativeStackNavigationOptions
-} from '@react-navigation/native-stack';
-import {
-  createBottomTabNavigator,
-  BottomTabNavigationOptions
-} from '@react-navigation/bottom-tabs';
+import { createNativeStackNavigator, NativeStackNavigationOptions } from '@react-navigation/native-stack';
+import { createBottomTabNavigator, BottomTabNavigationOptions } from '@react-navigation/bottom-tabs';
 import {
   Home as HomeIcon,
   Droplet,
@@ -27,6 +13,7 @@ import {
   Bluetooth
 } from 'lucide-react-native';
 
+// Ekranları İmport Et
 import HomeScreen from '../screens/HomeScreen';
 import MotorScreen from '../screens/MotorControlScreen';
 import LogsScreen from '../screens/LogsScreen';
@@ -34,26 +21,24 @@ import ScheduleScreen from '../screens/ScheduleScreen';
 import SettingsScreen from '../screens/SettingsScreen';
 import NewScheduleScreen from '../screens/NewScheduleScreen';
 import EditScheduleScreen from '../screens/EditScheduleScreen';
-import BluetoothScreen from '../screens/BluetoothScreen';
+import BluetoothScreen from '../screens/BluetoothScreen'; // Bluetooth ekranı buradan çağrılır
 
 import colors from '../constants/colors';
 import { useThemeStore } from '../stores/theme-store';
 
-const Tab = createBottomTabNavigator<{
-  Home: undefined;
-  Motor: undefined;
-  Logs: undefined;
-  Schedule: undefined;
-  Bluetooth: undefined;
-  Settings: undefined;
-}>();
+// Tipleri tanımla
+export type RootStackParamList = {
+  HomeTabs: undefined;
+  NewSchedule: undefined;
+  EditSchedule: { id: number };
+};
 
+const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
 export default function AppNavigator() {
-  const systemScheme = useColorScheme();
   const { theme } = useThemeStore();
-  const activeTheme = theme || systemScheme || 'light';
+  const activeTheme = theme || 'light';
   const themeColors = activeTheme === 'dark' ? colors.dark : colors.light;
 
   const tabOptions: BottomTabNavigationOptions = {
@@ -75,9 +60,6 @@ export default function AppNavigator() {
       alignItems: 'center',
       marginVertical: Platform.OS === 'ios' ? 10 : 12
     },
-    tabBarIconStyle: {
-      alignSelf: 'center'
-    }
   };
 
   const stackOptions: NativeStackNavigationOptions = {

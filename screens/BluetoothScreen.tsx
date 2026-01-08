@@ -9,13 +9,14 @@ import { useThemeStore } from '../stores/theme-store';
 import Button from '../components/Button';
 import AppColors from '../constants/colors';
 
+// Tipi artık merkezi types dosyasından alıyoruz
 import { BluetoothDevice } from '../types/bluetooth';
 
 const BluetoothScreen = () => {
   const navigation = useNavigation();
   const { theme } = useThemeStore();
   
-  const themeColors = AppColors[theme === 'dark' ? 'dark' : 'light'];
+  const themeColors = theme === 'dark' ? AppColors.dark : AppColors.light;
 
   const {
     devices,
@@ -27,6 +28,7 @@ const BluetoothScreen = () => {
     clearErrors
   } = useBluetoothStore();
 
+  // Ekran açıldığında otomatik tarama başlat
   useEffect(() => {
     startScan();
     return () => {
@@ -35,15 +37,18 @@ const BluetoothScreen = () => {
     };
   }, []);
 
+  // Bağlantı başarılı olduğunda ana ekrana yönlendir
   useEffect(() => {
     if (connectionStatus.status === 'success') {
+       // DÜZELTME BURADA YAPILDI: 'Main' yerine 'HomeTabs'
        navigation.reset({
         index: 0,
-        routes: [{ name: 'Main' as never }], 
+        routes: [{ name: 'HomeTabs' as never }], 
       });
     }
   }, [connectionStatus.status]);
 
+  // Hata durumlarını kullanıcıya bildir
   useEffect(() => {
     if (connectionStatus.status === 'error' && connectionStatus.message) {
       Alert.alert("Connection Error", connectionStatus.message, [
@@ -53,34 +58,47 @@ const BluetoothScreen = () => {
   }, [connectionStatus]);
 
   const handleDevicePress = (device: BluetoothDevice) => {
+    if (connectionStatus.status === 'connecting') return;
     connectToDevice(device.id);
   };
 
-  const renderDeviceItem = ({ item }: { item: BluetoothDevice }) => (
-    <TouchableOpacity
-      style={[styles.deviceItem, { backgroundColor: themeColors.card, borderColor: themeColors.border }]}
-      onPress={() => handleDevicePress(item)}
-      disabled={connectionStatus.status === 'connecting'}
-    >
-      <View style={styles.deviceInfo}>
-        <Ionicons name="bluetooth" size={24} color={AppColors.primary} />
-        <View style={{ marginLeft: 12 }}>
-          <Text style={[styles.deviceName, { color: themeColors.text }]}>
-            {item.name || "Unknown Device"}
-          </Text>
-          <Text style={[styles.deviceId, { color: themeColors.textSecondary }]}>
-            {item.id}
-          </Text>
+  const renderDeviceItem = ({ item }: { item: BluetoothDevice }) => {
+    // Sadece bu cihaza bağlanılıyorsa spinner göster
+    const isConnectingToThis = connectionStatus.status === 'connecting' && connectionStatus.message?.includes('Connecting'); 
+
+    return (
+      <TouchableOpacity
+        style={[styles.deviceItem, { backgroundColor: themeColors.card, borderColor: themeColors.border }]}
+        onPress={() => handleDevicePress(item)}
+        disabled={connectionStatus.status === 'connecting'}
+      >
+        <View style={styles.deviceInfo}>
+          <View style={[styles.iconContainer, { backgroundColor: AppColors.primary + '20' }]}>
+             <Ionicons name="bluetooth" size={24} color={AppColors.primary} />
+          </View>
+          <View style={{ marginLeft: 12 }}>
+            <Text style={[styles.deviceName, { color: themeColors.text }]}>
+              {item.name || "Unknown Device"}
+            </Text>
+            <Text style={[styles.deviceId, { color: themeColors.textSecondary }]}>
+              {item.id}
+            </Text>
+            {item.rssi && (
+               <Text style={[styles.rssiText, { color: themeColors.textTertiary }]}>
+                 Signal: {item.rssi} dBm
+               </Text>
+            )}
+          </View>
         </View>
-      </View>
-      
-      {connectionStatus.status === 'connecting' ? (
-         <ActivityIndicator size="small" color={AppColors.primary} />
-      ) : (
-         <Ionicons name="chevron-forward" size={20} color={themeColors.textTertiary} />
-      )}
-    </TouchableOpacity>
-  );
+        
+        {isConnectingToThis ? (
+           <ActivityIndicator size="small" color={AppColors.primary} />
+        ) : (
+           <Ionicons name="chevron-forward" size={20} color={themeColors.textTertiary} />
+        )}
+      </TouchableOpacity>
+    );
+  };
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: themeColors.background }]}>
@@ -104,9 +122,13 @@ const BluetoothScreen = () => {
         </TouchableOpacity>
       </View>
 
-      {connectionStatus.status === 'connecting' && (
-          <View style={[styles.statusBar, { backgroundColor: AppColors.info + '20' }]}>
-              <Text style={{ color: AppColors.info }}>Connecting to device...</Text>
+      {/* Dinamik Durum Çubuğu */}
+      {(connectionStatus.status === 'connecting' || connectionStatus.status === 'scanning') && connectionStatus.message && (
+          <View style={[styles.statusBar, { backgroundColor: AppColors.info + '15' }]}>
+              <ActivityIndicator size="small" color={AppColors.info} style={{ marginRight: 8 }} />
+              <Text style={{ color: AppColors.info, fontWeight: '500' }}>
+                  {connectionStatus.message}
+              </Text>
           </View>
       )}
 
@@ -116,21 +138,25 @@ const BluetoothScreen = () => {
         renderItem={renderDeviceItem}
         contentContainerStyle={styles.listContent}
         ListEmptyComponent={
-          !isScanning ? (
+          !isScanning && connectionStatus.status !== 'connecting' ? (
             <View style={styles.emptyContainer}>
-              <Ionicons name="bluetooth-outline" size={64} color={themeColors.textTertiary} />
+              <View style={[styles.emptyIconData, { backgroundColor: themeColors.border }]}>
+                 <Ionicons name="bluetooth-outline" size={48} color={themeColors.textTertiary} />
+              </View>
+              <Text style={[styles.emptyTitle, { color: themeColors.text }]}>No Devices Found</Text>
               <Text style={[styles.emptyText, { color: themeColors.textSecondary }]}>
-                No devices found. Make sure your ESP32 is powered on.
+                Make sure your ESP32 device is powered on and within range.
               </Text>
               <Button 
                 title="Scan Again" 
                 onPress={startScan}
-                style={{ marginTop: 20 }}
+                style={{ marginTop: 24, minWidth: 200 }}
+                variant="outline"
               />
             </View>
           ) : (
              <View style={styles.emptyContainer}>
-                <Text style={{ color: themeColors.textSecondary }}>Scanning for devices...</Text>
+                {/* Liste boşken ve tarama sürüyorken burası görünür */}
              </View>
           )
         }
@@ -147,13 +173,26 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
   },
-  title: { fontSize: 28, fontWeight: 'bold' },
-  subtitle: { fontSize: 14, marginTop: 4 },
+  title: { fontSize: 28, fontWeight: '800', letterSpacing: -0.5 },
+  subtitle: { fontSize: 14, marginTop: 4, fontWeight: '500' },
   scanBtn: {
-      width: 40, height: 40, borderRadius: 20, 
-      justifyContent: 'center', alignItems: 'center'
+      width: 44, height: 44, borderRadius: 22, 
+      justifyContent: 'center', alignItems: 'center',
+      shadowColor: "#000",
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.2,
+      shadowRadius: 8,
+      elevation: 4,
   },
-  statusBar: { padding: 10, alignItems: 'center', marginBottom: 10 },
+  statusBar: { 
+      flexDirection: 'row',
+      padding: 12, 
+      alignItems: 'center', 
+      justifyContent: 'center',
+      marginBottom: 10,
+      marginHorizontal: 20,
+      borderRadius: 12
+  },
   listContent: { paddingHorizontal: 20, paddingBottom: 20 },
   deviceItem: {
     flexDirection: 'row',
@@ -163,25 +202,37 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     borderRadius: 16,
     borderWidth: 1,
+    // Hafif gölge efekti
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.05,
-    shadowRadius: 8,
+    shadowRadius: 4,
     elevation: 2,
   },
   deviceInfo: { flexDirection: 'row', alignItems: 'center' },
-  deviceName: { fontSize: 16, fontWeight: '600' },
-  deviceId: { fontSize: 12, marginTop: 2 },
+  iconContainer: {
+      width: 48, height: 48, borderRadius: 24,
+      alignItems: 'center', justifyContent: 'center'
+  },
+  deviceName: { fontSize: 16, fontWeight: '700', marginBottom: 2 },
+  deviceId: { fontSize: 12, fontFamily: 'monospace', opacity: 0.7 },
+  rssiText: { fontSize: 11, marginTop: 4 },
   emptyContainer: {
     alignItems: 'center',
     justifyContent: 'center',
-    paddingTop: 60,
+    paddingTop: 80,
+    paddingHorizontal: 40
   },
+  emptyIconData: {
+      width: 80, height: 80, borderRadius: 40,
+      alignItems: 'center', justifyContent: 'center',
+      marginBottom: 16
+  },
+  emptyTitle: { fontSize: 20, fontWeight: '700', marginBottom: 8 },
   emptyText: {
     textAlign: 'center',
-    marginTop: 16,
-    fontSize: 16,
-    maxWidth: '80%',
+    fontSize: 15,
+    lineHeight: 22,
   },
 });
 

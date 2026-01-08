@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
   View,
   Text,
@@ -14,7 +14,6 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import { getMotorState, updateMotorState, addMotorLog } from '../services/DatabaseService';
 import { useBluetoothStore } from '../stores/bluetooth-store';
-
 import { useThemeStore } from '../stores/theme-store';
 
 import Button from '../components/Button';
@@ -27,7 +26,8 @@ export default function MotorControlScreen() {
   const scheme = useThemeStore((state) => state.theme);
   const theme = scheme === 'dark' ? colors.dark : colors.light;
 
-  const { sendCommand, connectedDevice, telemetry } = useBluetoothStore();
+  // connectionStatus ve clearErrors eklendi
+  const { sendCommand, connectedDevice, telemetry, connectionStatus, clearErrors } = useBluetoothStore();
   const isOn = telemetry?.isPumpOn || false; 
   
   const [autoControl, setAutoControl] = useState(false);
@@ -36,7 +36,7 @@ export default function MotorControlScreen() {
   const [manualDurationSeconds, setManualDurationSeconds] = useState(10);
   
   const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [localError, setLocalError] = useState<string | null>(null); // İsim çakışmasını önlemek için localError
 
   const fetchSettings = () => {
     try {
@@ -58,6 +58,15 @@ export default function MotorControlScreen() {
     }, [])
   );
 
+  // Bluetooth Bağlantı Hatalarını Dinle (Simülasyon veya Gerçek)
+  useEffect(() => {
+    if (connectionStatus.status === 'error' && connectionStatus.message) {
+      Alert.alert("Connection Error", connectionStatus.message, [
+        { text: "OK", onPress: clearErrors }
+      ]);
+    }
+  }, [connectionStatus]);
+
   const handleToggleMotor = async () => {
     if (!connectedDevice) {
         Alert.alert("Connection Error", "Device not connected. Please connect via Bluetooth first.");
@@ -68,10 +77,12 @@ export default function MotorControlScreen() {
 
     try {
       setIsLoading(true);
-      setError(null);
+      setLocalError(null);
 
+      // Komut gönder (Store'daki simülasyon veya gerçek BLE)
       await sendCommand("ON", manualDurationSeconds);
       
+      // Log kaydı oluştur
       try {
           addMotorLog({
               startTime: new Date().toISOString(),
@@ -86,16 +97,16 @@ export default function MotorControlScreen() {
       fetchSettings();
       
     } catch (err: any) {
-      setError(err.message || 'Failed to send command');
+      setLocalError(err.message || 'Failed to send command');
     } finally {
+      // Simülasyon modunda komut çok hızlı dönebilir, UI akışını bozmaz.
       setIsLoading(false);
     }
   };
 
   const saveLocalSettings = (newSettings: any) => {
       try {
-          setIsLoading(true);
-          
+          // Setting saving is instantaneous mostly, but kept async pattern if needed
           updateMotorState(newSettings);
           
           if (newSettings.autoControl !== undefined) setAutoControl(newSettings.autoControl);
@@ -104,9 +115,7 @@ export default function MotorControlScreen() {
           if (newSettings.manualDurationSeconds !== undefined) setManualDurationSeconds(newSettings.manualDurationSeconds);
           
       } catch (err: any) {
-          setError("Failed to save settings");
-      } finally {
-          setIsLoading(false);
+          setLocalError("Failed to save settings");
       }
   }
 
@@ -140,10 +149,10 @@ export default function MotorControlScreen() {
             </View>
           </View>
 
-          {error ? (
+          {localError ? (
             <Card variant="elevated">
               <View style={styles.errorContainer}>
-                <Text style={[styles.errorText, { color: colors.danger }]}>{error}</Text>
+                <Text style={[styles.errorText, { color: colors.danger }]}>{localError}</Text>
               </View>
             </Card>
           ) : (
@@ -163,10 +172,15 @@ export default function MotorControlScreen() {
                     title={isOn ? "Motor Running" : "Start Motor"}
                     onPress={handleToggleMotor}
                     variant="glass"
-                    loading={isLoading}
-                    disabled={isOn}
+                    loading={isLoading || connectionStatus.status === 'sending'}
+                    disabled={isOn || autoControl} 
                     style={styles.motorButton}
                   />
+                  {autoControl && (
+                      <Text style={{color: 'rgba(255,255,255,0.7)', fontSize: 12, marginTop: 8}}>
+                          Disable Auto Mode to control manually
+                      </Text>
+                  )}
                 </View>
               </Card>
 

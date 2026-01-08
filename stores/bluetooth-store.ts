@@ -4,6 +4,9 @@ import { Platform, PermissionsAndroid, Alert } from 'react-native';
 import { decode as atob, encode as btoa } from 'base-64';
 import { BluetoothDevice, ConnectionStatus } from '../types/bluetooth';
 
+// --- CONFIGURATION ---
+const SIMULATION_MODE = true; // Set to FALSE for real hardware
+
 const SERVICE_UUID = "6E400001-B5A3-F393-E0A9-E50E24DCCA9E";
 const RX_UUID      = "6E400002-B5A3-F393-E0A9-E50E24DCCA9E"; 
 const TX_UUID      = "6E400003-B5A3-F393-E0A9-E50E24DCCA9E"; 
@@ -15,6 +18,11 @@ interface BluetoothState {
   connectionStatus: ConnectionStatus;
   isScanning: boolean;
   
+  // Internal state for simulation interval cleanup
+  simulationInterval: ReturnType<typeof setInterval> | null;
+  // Motor otomatik kapanma zamanlayıcısı (Simülasyon için)
+  simulationPumpTimeout: ReturnType<typeof setTimeout> | null;
+
   telemetry: { 
     moisture: number; 
     battery: number; 
@@ -35,10 +43,36 @@ export const useBluetoothStore = create<BluetoothState>((set, get) => ({
   connectedDevice: null,
   connectionStatus: { status: 'idle' },
   isScanning: false,
+  simulationInterval: null,
+  simulationPumpTimeout: null,
   telemetry: { moisture: 0, battery: 0, isPumpOn: false },
 
   startScan: async () => {
     const { manager } = get();
+
+    // --- SIMULATION MODE ---
+    if (SIMULATION_MODE) {
+      console.log('[Simulation] Starting scan...');
+      set({ isScanning: true, devices: [], connectionStatus: { status: 'scanning', message: 'Simulating Scan...' } });
+      
+      setTimeout(() => {
+        set((state) => ({
+          devices: [
+            {
+              id: 'MOCK-DEVICE-01',
+              name: 'ESP32-Smart-Garden',
+              rssi: -55,
+              isConnectable: true,
+            },
+          ],
+          isScanning: false, 
+          connectionStatus: { status: 'idle' }
+        }));
+        console.log('[Simulation] Device found: ESP32-Smart-Garden');
+      }, 1500);
+      return;
+    }
+    // -----------------------
 
     if (Platform.OS === 'android') {
       const granted = await PermissionsAndroid.requestMultiple([
@@ -89,6 +123,10 @@ export const useBluetoothStore = create<BluetoothState>((set, get) => ({
   },
 
   stopScan: () => {
+    if (SIMULATION_MODE) {
+       set({ isScanning: false, connectionStatus: { status: 'idle' } });
+       return;
+    }
     get().manager.stopDeviceScan();
     set({ isScanning: false, connectionStatus: { status: 'idle' } });
   },
@@ -98,6 +136,40 @@ export const useBluetoothStore = create<BluetoothState>((set, get) => ({
     const { manager } = get();
 
     set({ connectionStatus: { status: 'connecting', message: 'Connecting...' } });
+
+    // --- SIMULATION MODE ---
+    if (SIMULATION_MODE) {
+        setTimeout(() => {
+            set({ 
+                connectedDevice: { id: deviceId, name: 'ESP32-Smart-Garden' } as any, 
+                connectionStatus: { status: 'success', message: 'Connected to Simulator!' } 
+            });
+
+            setTimeout(() => {
+                set({ connectionStatus: { status: 'idle' } });
+            }, 1000);
+
+            // Mock Data Stream
+            const interval = setInterval(() => {
+                const randomMoisture = Math.floor(Math.random() * (85 - 30 + 1)) + 30;
+                const randomBattery = Math.floor(Math.random() * (100 - 60 + 1)) + 60;
+                
+                set((state) => ({
+                    telemetry: {
+                        ...state.telemetry,
+                        moisture: randomMoisture,
+                        battery: randomBattery,
+                        // Not: Pompa durumu burada override edilmez, sendCommand kontrol eder
+                    }
+                }));
+            }, 2000);
+
+            set({ simulationInterval: interval });
+
+        }, 1500);
+        return;
+    }
+    // -----------------------
 
     try {
       const device = await manager.connectToDevice(deviceId);
@@ -156,13 +228,26 @@ export const useBluetoothStore = create<BluetoothState>((set, get) => ({
   },
 
   disconnect: () => {
-    const { connectedDevice } = get();
-    if (connectedDevice) {
+    const { connectedDevice, simulationInterval, simulationPumpTimeout } = get();
+
+    if (simulationInterval) {
+        clearInterval(simulationInterval);
+    }
+    
+    // Timer varsa temizle
+    if (simulationPumpTimeout) {
+        clearTimeout(simulationPumpTimeout);
+    }
+
+    if (connectedDevice && !SIMULATION_MODE) {
       connectedDevice.cancelConnection();
     }
+
     set({ 
         connectedDevice: null, 
         connectionStatus: { status: 'idle' },
+        simulationInterval: null,
+        simulationPumpTimeout: null,
         telemetry: { moisture: 0, battery: 0, isPumpOn: false }
     });
   },
@@ -173,6 +258,45 @@ export const useBluetoothStore = create<BluetoothState>((set, get) => ({
         Alert.alert("Error", "Device not connected");
         return;
     }
+
+    // --- SIMULATION MODE ---
+    if (SIMULATION_MODE) {
+        set({ connectionStatus: { status: 'sending', message: `Sending ${command}...` } });
+        
+        // Varsa eski kapanma sayacını iptal et
+        const { simulationPumpTimeout } = get();
+        if (simulationPumpTimeout) clearTimeout(simulationPumpTimeout);
+        set({ simulationPumpTimeout: null });
+
+        setTimeout(() => {
+            set((state) => ({
+                 connectionStatus: { status: 'success', message: 'Command Simulated!' },
+                 telemetry: {
+                     ...state.telemetry,
+                     isPumpOn: command === 'ON'
+                 }
+            }));
+
+            // EĞER KOMUT 'ON' İSE VE SÜRE VARSA, OTOMATİK KAPATMAYI SİMÜLE ET
+            if (command === 'ON' && duration > 0) {
+                console.log(`[Simulation] Auto-OFF timer started for ${duration}s`);
+                const timeout = setTimeout(() => {
+                    set((state) => ({
+                        telemetry: { ...state.telemetry, isPumpOn: false }
+                    }));
+                    console.log('[Simulation] Pump auto-turned OFF');
+                }, duration * 1000);
+
+                set({ simulationPumpTimeout: timeout });
+            }
+            
+            setTimeout(() => {
+                set({ connectionStatus: { status: 'idle' } });
+            }, 1500);
+        }, 1000);
+        return;
+    }
+    // -----------------------
 
     const payload = JSON.stringify({ command, duration });
 

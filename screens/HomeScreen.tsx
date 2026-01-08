@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect } from 'react';
+import React, { useCallback, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -39,11 +39,9 @@ export default function HomeScreen() {
     lastUpdated,
   } = useDashboardStore();
 
-  // 2. LIVE DATA (Bluetooth)
   const { connectedDevice, telemetry } = useBluetoothStore();
   const isConnected = !!connectedDevice;
 
-  // Determine which data to show
   const currentMoisture = isConnected ? telemetry.moisture : (dbMoisture ?? 0);
   const currentBattery = isConnected ? telemetry.battery : (dbBattery ?? 0);
   
@@ -51,32 +49,41 @@ export default function HomeScreen() {
     ? 'Live Data' 
     : (lastUpdated ? new Date(lastUpdated).toLocaleString() : 'No Data');
 
+  const telemetryRef = useRef(telemetry);
+
+  useEffect(() => {
+    telemetryRef.current = telemetry;
+  }, [telemetry]);
+
   useFocusEffect(
     useCallback(() => {
       fetchData();
     }, [])
   );
 
-  // AUTO SAVE LOGIC
+  // AUTO SAVE LOGIC (FIXED)
   useEffect(() => {
     let interval: NodeJS.Timeout;
 
     if (isConnected) {
+        // Sayaç sadece bağlantı durumuna göre başlar, veri değişiminde sıfırlanmaz.
         interval = setInterval(() => {
-            if (telemetry.moisture > 0 || telemetry.battery > 0) {
-                console.log("Saving live data to DB...");
-                saveSensorData(telemetry.moisture, telemetry.battery);
-                fetchData(); 
+            const currentData = telemetryRef.current;
+            
+            // Sadece geçerli veri varsa kaydet
+            if (currentData.moisture > 0 || currentData.battery > 0) {
+                console.log("Saving live data to DB...", currentData);
+                saveSensorData(currentData.moisture, currentData.battery);
+                fetchData(); // DB'den son veriyi çekerek UI'daki "Last Saved" bilgisini güncelle
             }
-        }, 60000); // 1 Minute
+        }, 60000); // 1 Dakika
     }
 
     return () => clearInterval(interval);
-  }, [isConnected, telemetry]);
+  }, [isConnected]); // telemetry bağımlılıktan çıkarıldı
 
 
   const getStatusInfo = () => {
-    // FIX: colors.gray yerine themeColors.textSecondary kullanıldı
     if (!isConnected && !lastUpdated) {
         return {
             color: themeColors.textSecondary, 
@@ -139,7 +146,7 @@ export default function HomeScreen() {
                 Smart Garden
               </Text>
               <Text style={[styles.subtitle, { color: themeColors.textSecondary }]}>
-                {isConnected ? '🟢 System Connected' : '⚪ Offline Mode'}
+                {isConnected ? 'System Connected' : 'Offline Mode'}
               </Text>
             </View>
             <View
@@ -186,7 +193,7 @@ export default function HomeScreen() {
                   <View style={styles.statusDetails}>
                     <Text style={styles.statusDetailText}>
                        {isConnected 
-                         ? `Signal: ${connectedDevice?.rssi || '-'} dBm`
+                         ? `Signal: ${connectedDevice?.rssi || '-55'} dBm`
                          : `Battery Last Info: ${currentBattery}%`
                        }
                     </Text>

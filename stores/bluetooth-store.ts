@@ -4,8 +4,7 @@ import { Platform, PermissionsAndroid, Alert } from 'react-native';
 import { decode as atob, encode as btoa } from 'base-64';
 import { BluetoothDevice, ConnectionStatus } from '../types/bluetooth';
 
-// --- CONFIGURATION ---
-const SIMULATION_MODE = true; // Set to FALSE for real hardware
+const SIMULATION_MODE = true;
 
 const SERVICE_UUID = "6E400001-B5A3-F393-E0A9-E50E24DCCA9E";
 const RX_UUID      = "6E400002-B5A3-F393-E0A9-E50E24DCCA9E"; 
@@ -18,9 +17,7 @@ interface BluetoothState {
   connectionStatus: ConnectionStatus;
   isScanning: boolean;
   
-  // Internal state for simulation interval cleanup
   simulationInterval: ReturnType<typeof setInterval> | null;
-  // Motor otomatik kapanma zamanlayıcısı (Simülasyon için)
   simulationPumpTimeout: ReturnType<typeof setTimeout> | null;
 
   telemetry: { 
@@ -50,7 +47,6 @@ export const useBluetoothStore = create<BluetoothState>((set, get) => ({
   startScan: async () => {
     const { manager } = get();
 
-    // --- SIMULATION MODE ---
     if (SIMULATION_MODE) {
       console.log('[Simulation] Starting scan...');
       set({ isScanning: true, devices: [], connectionStatus: { status: 'scanning', message: 'Simulating Scan...' } });
@@ -72,7 +68,6 @@ export const useBluetoothStore = create<BluetoothState>((set, get) => ({
       }, 1500);
       return;
     }
-    // -----------------------
 
     if (Platform.OS === 'android') {
       const granted = await PermissionsAndroid.requestMultiple([
@@ -149,7 +144,6 @@ export const useBluetoothStore = create<BluetoothState>((set, get) => ({
                 set({ connectionStatus: { status: 'idle' } });
             }, 1000);
 
-            // Mock Data Stream
             const interval = setInterval(() => {
                 const randomMoisture = Math.floor(Math.random() * (85 - 30 + 1)) + 30;
                 const randomBattery = Math.floor(Math.random() * (100 - 60 + 1)) + 60;
@@ -159,17 +153,15 @@ export const useBluetoothStore = create<BluetoothState>((set, get) => ({
                         ...state.telemetry,
                         moisture: randomMoisture,
                         battery: randomBattery,
-                        // Not: Pompa durumu burada override edilmez, sendCommand kontrol eder
                     }
                 }));
-            }, 2000);
+            }, 60000);
 
             set({ simulationInterval: interval });
 
         }, 1500);
         return;
     }
-    // -----------------------
 
     try {
       const device = await manager.connectToDevice(deviceId);
@@ -234,7 +226,6 @@ export const useBluetoothStore = create<BluetoothState>((set, get) => ({
         clearInterval(simulationInterval);
     }
     
-    // Timer varsa temizle
     if (simulationPumpTimeout) {
         clearTimeout(simulationPumpTimeout);
     }
@@ -259,11 +250,9 @@ export const useBluetoothStore = create<BluetoothState>((set, get) => ({
         return;
     }
 
-    // --- SIMULATION MODE ---
     if (SIMULATION_MODE) {
         set({ connectionStatus: { status: 'sending', message: `Sending ${command}...` } });
         
-        // Varsa eski kapanma sayacını iptal et
         const { simulationPumpTimeout } = get();
         if (simulationPumpTimeout) clearTimeout(simulationPumpTimeout);
         set({ simulationPumpTimeout: null });
@@ -277,7 +266,6 @@ export const useBluetoothStore = create<BluetoothState>((set, get) => ({
                  }
             }));
 
-            // EĞER KOMUT 'ON' İSE VE SÜRE VARSA, OTOMATİK KAPATMAYI SİMÜLE ET
             if (command === 'ON' && duration > 0) {
                 console.log(`[Simulation] Auto-OFF timer started for ${duration}s`);
                 const timeout = setTimeout(() => {
@@ -296,7 +284,6 @@ export const useBluetoothStore = create<BluetoothState>((set, get) => ({
         }, 1000);
         return;
     }
-    // -----------------------
 
     const payload = JSON.stringify({ command, duration });
 

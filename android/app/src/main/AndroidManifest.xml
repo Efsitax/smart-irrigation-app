@@ -1,7 +1,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
           xmlns:tools="http://schemas.android.com/tools">
 
-  <!-- Gerekli izinler -->
   <uses-permission android:name="android.permission.INTERNET" />
   <uses-permission android:name="android.permission.VIBRATE" />
   <uses-permission android:name="android.permission.BLUETOOTH" />
@@ -10,12 +9,15 @@
   <uses-permission android:name="android.permission.BLUETOOTH_SCAN" />
   <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
   <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
-
-  <!-- Android 13 (API 33) için opsiyonel medya izinleri -->
+  
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+  <uses-permission android:name="android.permission.WAKE_LOCK" />
+  
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+  
   <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
   <uses-permission android:name="android.permission.NEARBY_WIFI_DEVICES" android:required="false" />
 
-  <!-- Uygulamanın başka uygulamalara link açabilmesi için -->
   <queries>
     <intent>
       <action android:name="android.intent.action.VIEW" />
@@ -34,7 +36,6 @@
     android:usesCleartextTraffic="true"
     >
 
-    <!-- Expo updates ayarları (Expo eject sonrası hâlâ geçerli olabilir) -->
     <meta-data
       android:name="expo.modules.updates.ENABLED"
       android:value="false" />
@@ -45,7 +46,6 @@
       android:name="expo.modules.updates.EXPO_UPDATES_LAUNCH_WAIT_MS"
       android:value="0" />
 
-    <!-- FCM default notification icon & color (override library defaults) -->
     <meta-data
       android:name="com.google.firebase.messaging.default_notification_icon"
       android:resource="@drawable/ic_notification"
@@ -55,7 +55,6 @@
       android:resource="@color/notification_color"
       tools:replace="android:resource" />
 
-    <!-- Ana activity -->
     <activity
       android:name=".MainActivity"
       android:configChanges="keyboard|keyboardHidden|orientation|screenSize|screenLayout|uiMode"
@@ -70,7 +69,6 @@
       </intent-filter>
     </activity>
 
-    <!-- ReactNativeFirebase messaging service (background & killed state) -->
     <service
       android:name="io.invertase.firebase.messaging.ReactNativeFirebaseMessagingService"
       android:exported="true"
@@ -80,7 +78,6 @@
       </intent-filter>
     </service>
 
-    <!-- ReactNativeFirebase headless service for data-only messages -->
     <service
       android:name="io.invertase.firebase.messaging.ReactNativeFirebaseMessagingHeadlessService"
       android:exported="true"
@@ -89,6 +86,11 @@
         <action android:name="com.google.firebase.MESSAGING_EVENT" />
       </intent-filter>
     </service>
+
+    <service 
+        android:name="com.asterinet.react.bgactions.RNBackgroundActionsTask"
+        android:foregroundServiceType="connectedDevice" 
+    />
 
   </application>
 </manifest>

@@ -12,6 +12,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useSettingsStore } from '../stores/settings-store';
 import { useTemperatureStore } from '../stores/temperature-store';
 import { useThemeStore } from '../stores/theme-store';
+import { useBluetoothStore } from '../stores/bluetooth-store'; // Bluetooth Store added
 
 import Button from '../components/Button';
 import Card from '../components/Card';
@@ -21,8 +22,10 @@ import AppColors from '../constants/colors';
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
   const { theme, setTheme } = useThemeStore();
-  
   const themeColors = AppColors[theme === 'dark' ? 'dark' : 'light'];
+
+  // Get necessary functions from Bluetooth Store
+  const { sendCommand, connectedDevice } = useBluetoothStore();
 
   const {
     autoControl,
@@ -40,6 +43,7 @@ export default function SettingsScreen() {
   const [localAutoDuration, setLocalAutoDuration] = useState<number | null>(null);
   const [localManualDuration, setLocalManualDuration] = useState<number | null>(null);
 
+  // ... Temperature Store codes can remain the same (Not sending temperature to ESP32 for now) ...
   const {
     temperatureThreshold,
     extraSeconds,
@@ -95,22 +99,37 @@ export default function SettingsScreen() {
       return;
     }
 
-    // 3. Save
+    // 1. Save to Database (Local)
     await saveSettings({
       autoControl: localAutoControl,
       moistureThreshold: newMoisture,
       autoDurationSeconds: newAutoDur,
       manualDurationSeconds: newManualDur,
     });
-    Alert.alert("Success", "Motor settings saved.");
+
+    // 2. Send to ESP32 (Remote)
+    if (connectedDevice) {
+      try {
+        // JSON format expected by ESP32
+        const payload = JSON.stringify({
+          auto_ctrl: localAutoControl,
+          threshold: newMoisture,
+          auto_dur: newAutoDur,
+          manual_dur: newManualDur
+        });
+        
+        await sendCommand(payload);
+        Alert.alert("Success", "Settings saved locally and synced to device!");
+      } catch (err) {
+        Alert.alert("Warning", "Saved locally but failed to sync with device.");
+      }
+    } else {
+      Alert.alert("Saved Locally", "Device is not connected. Connect to sync settings.");
+    }
   };
 
   const handleTempSave = async () => {
-    if (
-      localTempThreshold === null ||
-      localExtraDuration === null ||
-      localActive === null
-    ) return;
+    if (localTempThreshold === null || localExtraDuration === null || localActive === null) return;
 
     const newThreshold = Number(localTempThreshold);
     const newExtra = Number(localExtraDuration);
@@ -143,6 +162,7 @@ export default function SettingsScreen() {
       >
         <Text style={[styles.title, { color: themeColors.text }]}>Settings</Text>
 
+        {/* ... Appearance Section ... */}
         <Card>
           <Text style={[styles.sectionTitle, { color: themeColors.text }]}>Appearance</Text>
           <View style={styles.settingRow}>
@@ -162,11 +182,17 @@ export default function SettingsScreen() {
           </Card>
         ) : (
           <Card>
-            <Text style={[styles.sectionTitle, { color: themeColors.text }]}>Motor Control</Text>
+            <Text style={[styles.sectionTitle, { color: themeColors.text }]}>Motor & Automation</Text>
+            
+            <View style={{ marginBottom: 10 }}>
+                <Text style={{ color: themeColors.textSecondary, fontSize: 12 }}>
+                    These settings are synced to the device for offline automation.
+                </Text>
+            </View>
 
             {localAutoControl !== null && (
               <View style={styles.settingRow}>
-                <Text style={[styles.settingLabel, { color: themeColors.text }]}>Auto Control</Text>
+                <Text style={[styles.settingLabel, { color: themeColors.text }]}>Auto Control (Offline)</Text>
                 <Switch
                   value={localAutoControl}
                   onValueChange={setLocalAutoControl}
@@ -210,7 +236,7 @@ export default function SettingsScreen() {
             )}
 
             <Button
-              title="Save Motor Settings"
+              title="Save & Sync Settings"
               onPress={handleMotorSave}
               style={styles.saveButton}
               loading={isLoading}
@@ -218,14 +244,14 @@ export default function SettingsScreen() {
           </Card>
         )}
 
+        {/* ... Temperature Section ... */}
         {tempError ? (
           <Card>
             <Text style={[styles.errorText, { color: AppColors.danger }]}>{tempError}</Text>
           </Card>
         ) : (
-          <Card>
+           <Card>
             <Text style={[styles.sectionTitle, { color: themeColors.text }]}>Temperature Control</Text>
-
             {localActive !== null && (
               <View style={styles.settingRow}>
                 <Text style={[styles.settingLabel, { color: themeColors.text }]}>Active</Text>
@@ -237,7 +263,6 @@ export default function SettingsScreen() {
                 />
               </View>
             )}
-
             {localTempThreshold !== null && (
               <ThresholdInput
                 label="Temperature Threshold (°C)"
@@ -248,7 +273,6 @@ export default function SettingsScreen() {
                 unit="°C"
               />
             )}
-
             {localExtraDuration !== null && (
               <ThresholdInput
                 label="Extra Duration"
@@ -259,31 +283,19 @@ export default function SettingsScreen() {
                 unit="sec"
               />
             )}
-
             <Button
               title="Save Temperature Settings"
               onPress={handleTempSave}
               style={styles.saveButton}
               loading={tempLoading}
             />
-
-            {updatedAt && (
+             {updatedAt && (
               <Text style={[styles.lastUpdated, { color: themeColors.textSecondary }]}>
                 Last updated: {formatTimestamp(updatedAt)}
               </Text>
             )}
           </Card>
         )}
-
-        <Card>
-          <Text style={[styles.sectionTitle, { color: themeColors.text }]}>About</Text>
-          <Text style={[styles.aboutText, { color: themeColors.text }]}>
-            Smart Irrigation System v2.0
-          </Text>
-          <Text style={[styles.aboutSubtext, { color: themeColors.textSecondary }]}>
-            Offline & Bluetooth Enabled
-          </Text>
-        </Card>
       </ScrollView>
     </SafeAreaView>
   );

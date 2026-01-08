@@ -10,6 +10,15 @@ const SERVICE_UUID = "6E400001-B5A3-F393-E0A9-E50E24DCCA9E";
 const RX_UUID      = "6E400002-B5A3-F393-E0A9-E50E24DCCA9E"; 
 const TX_UUID      = "6E400003-B5A3-F393-E0A9-E50E24DCCA9E"; 
 
+// Type definition for Telemetry data
+interface TelemetryData {
+  moisture: number; 
+  battery: number; 
+  isPumpOn: boolean;
+  // If you want to support raw data from ESP32 (m, b), you can add optional fields here, 
+  // but it's cleanest to transform data within the store.
+}
+
 interface BluetoothState {
   manager: BleManager;
   devices: BluetoothDevice[];
@@ -20,17 +29,17 @@ interface BluetoothState {
   simulationInterval: ReturnType<typeof setInterval> | null;
   simulationPumpTimeout: ReturnType<typeof setTimeout> | null;
 
-  telemetry: { 
-    moisture: number; 
-    battery: number; 
-    isPumpOn: boolean;
-  };
+  telemetry: TelemetryData;
 
   startScan: () => Promise<void>;
   stopScan: () => void;
   connectToDevice: (deviceId: string) => Promise<void>;
   disconnect: () => void;
-  sendCommand: (command: string, duration?: number) => Promise<void>;
+  
+  // Made the command sending function flexible.
+  // command: Can be a JSON string or a simple command like "ON".
+  sendCommand: (commandOrJson: string, duration?: number) => Promise<void>;
+  
   clearErrors: () => void;
 }
 
@@ -52,7 +61,7 @@ export const useBluetoothStore = create<BluetoothState>((set, get) => ({
       set({ isScanning: true, devices: [], connectionStatus: { status: 'scanning', message: 'Simulating Scan...' } });
       
       setTimeout(() => {
-        set((state) => ({
+        set({
           devices: [
             {
               id: 'MOCK-DEVICE-01',
@@ -63,7 +72,7 @@ export const useBluetoothStore = create<BluetoothState>((set, get) => ({
           ],
           isScanning: false, 
           connectionStatus: { status: 'idle' }
-        }));
+        });
         console.log('[Simulation] Device found: ESP32-Smart-Garden');
       }, 1500);
       return;
@@ -144,17 +153,14 @@ export const useBluetoothStore = create<BluetoothState>((set, get) => ({
             }, 1000);
 
             const interval = setInterval(() => {
-                const randomMoisture = Math.floor(Math.random() * (85 - 30 + 1)) + 30;
-                const randomBattery = Math.floor(Math.random() * (100 - 60 + 1)) + 60;
-                
                 set((state) => ({
                     telemetry: {
                         ...state.telemetry,
-                        moisture: randomMoisture,
-                        battery: randomBattery,
+                        moisture: Math.floor(Math.random() * (85 - 30 + 1)) + 30,
+                        battery: Math.floor(Math.random() * (100 - 60 + 1)) + 60,
                     }
                 }));
-            }, 60000);
+            }, 5000); // Send simulation data every 5 seconds
 
             set({ simulationInterval: interval });
 
@@ -177,6 +183,7 @@ export const useBluetoothStore = create<BluetoothState>((set, get) => ({
 
       let dataBuffer = ""; 
 
+      // Monitor Data
       discovered.monitorCharacteristicForService(
         SERVICE_UUID,
         TX_UUID,
@@ -203,16 +210,18 @@ export const useBluetoothStore = create<BluetoothState>((set, get) => ({
 
                try {
                  const parsed = JSON.parse(part);
-                 console.log("Parsed Data:", parsed);
+                 console.log("Parsed Data from ESP32:", parsed);
 
-                 const isPumpStarted = parsed.command === 'ON' || parsed.status === 'Motor STARTED';
-                 const isPumpStopped = parsed.command === 'OFF';
+                 // Mapping ESP32 keys "m", "b" to our "moisture", "battery" structure.
+                 // Also checking for "status" messages for pump state.
+                 
+                 const isPumpOn = parsed.isPumpOn ?? (parsed.status === 'ON' ? true : (parsed.status === 'OFF' ? false : undefined));
 
                  set((state) => ({
                    telemetry: {
                      moisture: parsed.m ?? state.telemetry.moisture,
                      battery: parsed.b ?? state.telemetry.battery,
-                     isPumpOn: isPumpStarted ? true : (isPumpStopped ? false : state.telemetry.isPumpOn)
+                     isPumpOn: isPumpOn !== undefined ? isPumpOn : state.telemetry.isPumpOn
                    }
                  }));
 
@@ -236,13 +245,8 @@ export const useBluetoothStore = create<BluetoothState>((set, get) => ({
   disconnect: () => {
     const { connectedDevice, simulationInterval, simulationPumpTimeout } = get();
 
-    if (simulationInterval) {
-        clearInterval(simulationInterval);
-    }
-    
-    if (simulationPumpTimeout) {
-        clearTimeout(simulationPumpTimeout);
-    }
+    if (simulationInterval) clearInterval(simulationInterval);
+    if (simulationPumpTimeout) clearTimeout(simulationPumpTimeout);
 
     if (connectedDevice && !SIMULATION_MODE) {
       connectedDevice.cancelConnection();
@@ -257,60 +261,61 @@ export const useBluetoothStore = create<BluetoothState>((set, get) => ({
     });
   },
 
-  sendCommand: async (command: string, duration = 0) => {
+  // UPDATED SEND COMMAND
+  // Now supports both ("ON", 10) format and ('{"auto_ctrl": true}') format.
+  sendCommand: async (commandOrJson: string, duration?: number) => {
     const { connectedDevice } = get();
-    if (!connectedDevice) {
+    if (!connectedDevice && !SIMULATION_MODE) {
         Alert.alert("Error", "Device not connected");
         return;
     }
 
+    // 1. Prepare Payload to Send
+    let payload = commandOrJson;
+
+    // If parameter is not in JSON format (e.g., just "ON"), convert to legacy JSON format
+    if (!commandOrJson.startsWith('{')) {
+        payload = JSON.stringify({ command: commandOrJson, duration: duration || 0 });
+    }
+
+    // 2. Simulation Mode
     if (SIMULATION_MODE) {
-        set({ connectionStatus: { status: 'sending', message: `Sending ${command}...` } });
+        set({ connectionStatus: { status: 'sending', message: 'Sending command...' } });
         
-        const { simulationPumpTimeout } = get();
-        if (simulationPumpTimeout) clearTimeout(simulationPumpTimeout);
-        set({ simulationPumpTimeout: null });
+        // Update pump state in simulation
+        try {
+            const parsed = JSON.parse(payload);
+            if (parsed.command === 'ON') {
+                set((state) => ({ telemetry: { ...state.telemetry, isPumpOn: true } }));
+                
+                // Auto-off simulation
+                const dur = parsed.duration || 5;
+                setTimeout(() => {
+                    set((state) => ({ telemetry: { ...state.telemetry, isPumpOn: false } }));
+                }, dur * 1000);
+            }
+        } catch (e) {}
 
         setTimeout(() => {
-            set((state) => ({
-                 connectionStatus: { status: 'success', message: 'Command Simulated!' },
-                 telemetry: {
-                     ...state.telemetry,
-                     isPumpOn: command === 'ON'
-                 }
-            }));
-
-            if (command === 'ON' && duration > 0) {
-                console.log(`[Simulation] Auto-OFF timer started for ${duration}s`);
-                const timeout = setTimeout(() => {
-                    set((state) => ({
-                        telemetry: { ...state.telemetry, isPumpOn: false }
-                    }));
-                    console.log('[Simulation] Pump auto-turned OFF');
-                }, duration * 1000);
-
-                set({ simulationPumpTimeout: timeout });
-            }
-            
-            setTimeout(() => {
-                set({ connectionStatus: { status: 'idle' } });
-            }, 1500);
-        }, 1000);
+            set({ connectionStatus: { status: 'success', message: 'Command Simulated!' } });
+            setTimeout(() => set({ connectionStatus: { status: 'idle' } }), 1000);
+        }, 800);
         return;
     }
 
-    const payload = JSON.stringify({ command, duration });
-
+    // 3. Real Mode (BLE Write)
     try {
         set({ connectionStatus: { status: 'sending', message: 'Sending command...' } });
         
-        await connectedDevice.writeCharacteristicWithResponseForService(
+        console.log("Sending BLE Payload:", payload);
+
+        await connectedDevice!.writeCharacteristicWithResponseForService(
             SERVICE_UUID,
             RX_UUID,
             btoa(payload)
         );
 
-        set({ connectionStatus: { status: 'success', message: 'Command sent!' } });
+        set({ connectionStatus: { status: 'success', message: 'Sent!' } });
         
         setTimeout(() => {
             set((state) => ({
@@ -318,11 +323,11 @@ export const useBluetoothStore = create<BluetoothState>((set, get) => ({
                  ? { status: 'idle' } 
                  : state.connectionStatus 
             }));
-        }, 2000);
+        }, 1500);
 
     } catch (error) {
         console.log('Send Error:', error);
-        set({ connectionStatus: { status: 'error', message: 'Failed to send command' } });
+        set({ connectionStatus: { status: 'error', message: 'Failed to send' } });
     }
   },
   

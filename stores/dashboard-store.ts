@@ -1,9 +1,5 @@
-// stores/dashboard-store.ts
 import { create } from 'zustand';
-import {
-  fetchMoistureData,
-  fetchBatteryData
-} from '../api/irrigationService';
+import { getLatestSensorHistory } from '../services/DatabaseService';
 
 interface DashboardState {
   moisture: number | null;
@@ -24,19 +20,31 @@ export const useDashboardStore = create<DashboardState>((set) => ({
   fetchData: async () => {
     set({ isLoading: true, error: null });
     try {
-      const [{ soilMoisturePercent }, { batteryPercent }] = await Promise.all([
-        fetchMoistureData(),
-        fetchBatteryData(),
-      ]);
-      set({
-        moisture: soilMoisturePercent,
-        battery: batteryPercent,
-        lastUpdated: new Date().toISOString(),
-        isLoading: false
-      });
+      // SQLite'dan son verileri çek (Senkron çalışır ama async sarmalayıcı içinde tutuyoruz)
+      const history = getLatestSensorHistory();
+      
+      if (history && history.length > 0) {
+        // En güncel kayıt (listede 0. index)
+        const latest = history[0];
+        set({
+          moisture: latest.soilMoisturePercent,
+          battery: latest.batteryPercent,
+          lastUpdated: latest.timestamp,
+          isLoading: false
+        });
+      } else {
+        // Hiç veri yoksa
+        set({ 
+            moisture: 0, 
+            battery: 0, 
+            lastUpdated: null, 
+            isLoading: false 
+        });
+      }
     } catch (err: any) {
+      console.error(err);
       set({
-        error: err.message || 'Failed to fetch dashboard data',
+        error: 'Failed to load local dashboard data',
         isLoading: false
       });
     }

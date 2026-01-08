@@ -1,9 +1,9 @@
-// src/stores/temperature-store.ts
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { TemperatureConfigDto } from '../types/irrigation';
-import { getTemperatureConfig, updateTemperatureConfig } from '../api/temperatureService';
+
+// YENİ: Database Service Import
+import { getTemperatureConfig, updateTemperatureConfig } from '../services/DatabaseService';
 
 interface TemperatureStore {
   temperatureThreshold: number;
@@ -33,7 +33,7 @@ export const useTemperatureStore = create<TemperatureStore>()(
       fetchTemperatureConfig: async () => {
         set({ isLoading: true, error: null });
         try {
-          const res: TemperatureConfigDto = await getTemperatureConfig();
+          const res = getTemperatureConfig();
           set({
             temperatureThreshold: res.threshold,
             extraSeconds: res.extraSeconds,
@@ -42,17 +42,23 @@ export const useTemperatureStore = create<TemperatureStore>()(
             isLoading: false
           });
         } catch (err: any) {
-          set({ error: err.message, isLoading: false });
+          set({ error: 'Failed to load temp config', isLoading: false });
         }
       },
 
       saveTemperatureConfig: async (cfg) => {
         set({ isLoading: true, error: null });
         try {
-          await updateTemperatureConfig(cfg);
-          set({ ...cfg, updatedAt: new Date().toISOString(), isLoading: false });
+          updateTemperatureConfig(cfg);
+          set({ 
+              temperatureThreshold: cfg.threshold,
+              extraSeconds: cfg.extraSeconds,
+              active: cfg.active,
+              updatedAt: new Date().toISOString(), 
+              isLoading: false 
+          });
         } catch (err: any) {
-          set({ error: err.message, isLoading: false });
+          set({ error: 'Failed to save temp config', isLoading: false });
         }
       }
     }),

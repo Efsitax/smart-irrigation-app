@@ -10,7 +10,6 @@
       "resizeMode": "contain"
     },
     "platforms": [
-      "ios",
       "android"
     ],
     "updates": {
@@ -19,14 +18,20 @@
     "assetBundlePatterns": [
       "**/*"
     ],
-    "ios": {
-      "supportsTablet": true,
-      "bundleIdentifier": "com.kadir.smartirrigation"
-    },
     "android": {
       "package": "com.kadir.smartirrigation",
       "versionCode": 1,
       "permissions": []
-    }
+    },
+    "plugins": [
+      [
+        "@config-plugins/react-native-ble-plx",
+        {
+          "isBackgroundEnabled": false,
+          "modes": ["central"],
+          "bluetoothAlwaysPermission": "Bluetooth permission is required for the application to connect to the irrigation device."
+        }
+      ]
+    ]
   }
 }

@@ -5,7 +5,7 @@ import {
   StyleSheet,
   ScrollView,
   Switch,
-  useColorScheme,
+  Alert
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -16,14 +16,13 @@ import { useThemeStore } from '../stores/theme-store';
 import Button from '../components/Button';
 import Card from '../components/Card';
 import ThresholdInput from '../components/ThresholdInput';
-import colors from '../constants/colors';
+import AppColors from '../constants/colors';
 
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
-  const systemScheme = useColorScheme() || 'light';
   const { theme, setTheme } = useThemeStore();
-  const activeTheme = theme || systemScheme;
-  const themeColors = activeTheme === 'dark' ? colors.dark : colors.light;
+  
+  const themeColors = AppColors[theme === 'dark' ? 'dark' : 'light'];
 
   const {
     autoControl,
@@ -62,48 +61,48 @@ export default function SettingsScreen() {
   }, []);
 
   useEffect(() => {
-    if (autoControl !== null) setLocalAutoControl(autoControl);
-    if (moistureThreshold !== null) setLocalMoistureThreshold(moistureThreshold);
-    if (autoDurationSeconds !== null) setLocalAutoDuration(autoDurationSeconds);
-    if (manualDurationSeconds !== null) setLocalManualDuration(manualDurationSeconds);
+    setLocalAutoControl(autoControl);
+    setLocalMoistureThreshold(moistureThreshold);
+    setLocalAutoDuration(autoDurationSeconds);
+    setLocalManualDuration(manualDurationSeconds);
   }, [autoControl, moistureThreshold, autoDurationSeconds, manualDurationSeconds]);
 
   useEffect(() => {
-    if (temperatureThreshold !== null) setLocalTempThreshold(temperatureThreshold);
-    if (extraSeconds !== null) setLocalExtraDuration(extraSeconds);
-    if (active !== null) setLocalActive(active);
+    setLocalTempThreshold(temperatureThreshold);
+    setLocalExtraDuration(extraSeconds);
+    setLocalActive(active);
   }, [temperatureThreshold, extraSeconds, active]);
 
-  const handleMotorSave = () => {
+  const handleMotorSave = async () => {
     if (
       localAutoControl === null ||
       localMoistureThreshold === null ||
       localAutoDuration === null ||
       localManualDuration === null
-    )
-      return;
+    ) return;
 
-    saveSettings({
+    await saveSettings({
       autoControl: localAutoControl,
       moistureThreshold: localMoistureThreshold,
       autoDurationSeconds: localAutoDuration,
       manualDurationSeconds: localManualDuration,
     });
+    Alert.alert("Success", "Motor settings saved.");
   };
 
-  const handleTempSave = () => {
+  const handleTempSave = async () => {
     if (
       localTempThreshold === null ||
       localExtraDuration === null ||
       localActive === null
-    )
-      return;
+    ) return;
 
-    saveTemperatureConfig({
+    await saveTemperatureConfig({
       threshold: localTempThreshold,
       extraSeconds: localExtraDuration,
       active: localActive,
     });
+    Alert.alert("Success", "Temperature settings saved.");
   };
 
   const formatTimestamp = (ts?: string | null) => {
@@ -117,27 +116,26 @@ export default function SettingsScreen() {
       <ScrollView
         contentContainerStyle={[styles.container, { paddingBottom: 90 + insets.bottom }]}
         style={{ backgroundColor: themeColors.background }}
+        showsVerticalScrollIndicator={false}
       >
         <Text style={[styles.title, { color: themeColors.text }]}>Settings</Text>
 
-        {/* Appearance */}
         <Card>
           <Text style={[styles.sectionTitle, { color: themeColors.text }]}>Appearance</Text>
           <View style={styles.settingRow}>
             <Text style={[styles.settingLabel, { color: themeColors.text }]}>Dark Mode</Text>
             <Switch
-              value={activeTheme === 'dark'}
+              value={theme === 'dark'}
               onValueChange={(val) => setTheme(val ? 'dark' : 'light')}
-              trackColor={{ false: themeColors.border, true: colors.primary }}
+              trackColor={{ false: themeColors.border, true: AppColors.primary }}
               thumbColor="#FFF"
             />
           </View>
         </Card>
 
-        {/* Motor Settings */}
         {error ? (
           <Card>
-            <Text style={[styles.errorText, { color: colors.danger }]}>{error}</Text>
+            <Text style={[styles.errorText, { color: AppColors.danger }]}>{error}</Text>
           </Card>
         ) : (
           <Card>
@@ -149,7 +147,7 @@ export default function SettingsScreen() {
                 <Switch
                   value={localAutoControl}
                   onValueChange={setLocalAutoControl}
-                  trackColor={{ false: themeColors.border, true: colors.primary }}
+                  trackColor={{ false: themeColors.border, true: AppColors.primary }}
                   thumbColor="#FFF"
                 />
               </View>
@@ -197,10 +195,9 @@ export default function SettingsScreen() {
           </Card>
         )}
 
-        {/* Temperature Settings */}
         {tempError ? (
           <Card>
-            <Text style={[styles.errorText, { color: colors.danger }]}>{tempError}</Text>
+            <Text style={[styles.errorText, { color: AppColors.danger }]}>{tempError}</Text>
           </Card>
         ) : (
           <Card>
@@ -212,7 +209,7 @@ export default function SettingsScreen() {
                 <Switch
                   value={localActive}
                   onValueChange={setLocalActive}
-                  trackColor={{ false: themeColors.border, true: colors.primary }}
+                  trackColor={{ false: themeColors.border, true: AppColors.primary }}
                   thumbColor="#FFF"
                 />
               </View>
@@ -255,14 +252,13 @@ export default function SettingsScreen() {
           </Card>
         )}
 
-        {/* About */}
         <Card>
           <Text style={[styles.sectionTitle, { color: themeColors.text }]}>About</Text>
           <Text style={[styles.aboutText, { color: themeColors.text }]}>
-            Smart Irrigation System v1.0.0
+            Smart Irrigation System v2.0
           </Text>
           <Text style={[styles.aboutSubtext, { color: themeColors.textSecondary }]}>
-            A modern solution for efficient irrigation management
+            Offline & Bluetooth Enabled
           </Text>
         </Card>
       </ScrollView>

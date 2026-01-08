@@ -1,4 +1,3 @@
-// src/screens/EditScheduleScreen.tsx
 import React, { useEffect, useState, useCallback } from 'react';
 import {
   View,
@@ -7,11 +6,12 @@ import {
   ScrollView,
   Switch,
   TextInput,
-  TouchableOpacity
+  TouchableOpacity,
+  Alert
 } from 'react-native';
-import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'; // 💡 eklendi
-import { LinearGradient } from 'expo-linear-gradient'; // 💡 eklendi
+import { useFocusEffect, useNavigation, useRoute, RouteProp } from '@react-navigation/native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { LinearGradient } from 'expo-linear-gradient';
 
 import { DayOfWeek } from '../types/irrigation';
 import { useScheduleStore } from '../stores/schedule-store';
@@ -19,6 +19,11 @@ import Button from '../components/Button';
 import ThresholdInput from '../components/ThresholdInput';
 import colors from '../constants/colors';
 import { useThemeStore } from '../stores/theme-store';
+
+// Navigation Param Listesi (AppNavigator ile uyumlu olmalı)
+type RootStackParamList = {
+  EditSchedule: { id: number }; // ID number olarak geliyor
+};
 
 const DAYS_OF_WEEK: { id: DayOfWeek; label: string; short: string }[] = [
   { id: 'MONDAY', label: 'Monday', short: 'M' },
@@ -31,20 +36,21 @@ const DAYS_OF_WEEK: { id: DayOfWeek; label: string; short: string }[] = [
 ];
 
 export default function EditScheduleScreen() {
-  const insets = useSafeAreaInsets(); // 💡 eklendi
+  const insets = useSafeAreaInsets();
   const scheme = useThemeStore((state) => state.theme);
   const theme = scheme === 'dark' ? colors.dark : colors.light;
   const navigation = useNavigation();
-  const route = useRoute();
-  const { id } = (route.params as { id: string }) || {};
+  
+  // Route params handling
+  const route = useRoute<RouteProp<RootStackParamList, 'EditSchedule'>>();
+  const { id } = route.params || {};
 
   const { schedules, editSchedule, isLoading, fetchSchedules } = useScheduleStore();
 
-  const { id: routeId } = (route.params as { id: string }) || {};
-  const numericId = parseInt(routeId, 10);
-  const existing = schedules.find(s => s.id === numericId);
+  // Find existing schedule
+  const existing = schedules.find(s => s.id === id);
 
-  const [time, setTime] = useState(existing?.time || '12:00');
+  const [time, setTime] = useState(existing?.time || '08:00');
   const [duration, setDuration] = useState(existing?.durationInSeconds || 60);
   const [days, setDays] = useState<DayOfWeek[]>(existing?.days || []);
   const [repeat, setRepeat] = useState(existing?.repeatDaily ?? true);
@@ -53,10 +59,12 @@ export default function EditScheduleScreen() {
 
   useFocusEffect(
     useCallback(() => {
+      // Refresh data when screen comes into focus
       fetchSchedules();
-    }, [fetchSchedules])
+    }, [])
   );
 
+  // Update state if 'existing' data loads/changes
   useEffect(() => {
     if (existing) {
       setTime(existing.time);
@@ -73,20 +81,27 @@ export default function EditScheduleScreen() {
 
   const onSave = async () => {
     if (!existing) return;
-    await editSchedule(existing.id, {
-      time,
-      durationInSeconds: duration,
-      days,
-      repeatDaily: repeat,
-      specificDate: repeat ? undefined : specificDate,
-    });
-    navigation.goBack();
+    
+    try {
+      await editSchedule(existing.id, {
+        time,
+        durationInSeconds: duration,
+        days,
+        repeatDaily: repeat,
+        specificDate: repeat ? undefined : specificDate,
+        active
+      });
+      navigation.goBack();
+    } catch (error) {
+      Alert.alert("Error", "Failed to update schedule");
+    }
   };
 
   if (!existing) {
     return (
       <View style={[styles.center, { backgroundColor: theme.background }]}>
         <Text style={{ color: colors.danger }}>Schedule not found</Text>
+        <Button title="Go Back" onPress={() => navigation.goBack()} style={{marginTop: 20}} />
       </View>
     );
   }
@@ -95,7 +110,7 @@ export default function EditScheduleScreen() {
     <View style={{ flex: 1 }}>
       <LinearGradient
         colors={[theme.background, theme.backgroundSecondary]}
-        style={{ flex: 1, paddingBottom: insets.bottom }} // 💡 alt boşluğu gradientle ört
+        style={{ flex: 1, paddingBottom: insets.bottom }}
       >
         <SafeAreaView style={{ flex: 1 }}>
           <ScrollView
@@ -106,7 +121,7 @@ export default function EditScheduleScreen() {
             <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
               <Text style={[styles.section, { color: theme.text }]}>Time & Duration</Text>
               <View style={styles.group}>
-                <Text style={[styles.label, { color: theme.text }]}>Time</Text>
+                <Text style={[styles.label, { color: theme.text }]}>Time (HH:mm)</Text>
                 <TextInput
                   style={[styles.input, { borderColor: theme.border, color: theme.text }]}
                   value={time}
@@ -114,10 +129,11 @@ export default function EditScheduleScreen() {
                   placeholder="HH:MM"
                   placeholderTextColor={theme.textSecondary}
                   keyboardType="numbers-and-punctuation"
+                  maxLength={8}
                 />
               </View>
               <View style={styles.group}>
-                <Text style={[styles.label, { color: theme.text }]}>Duration (sec)</Text>
+                <Text style={[styles.label, { color: theme.text }]}>Duration</Text>
                 <ThresholdInput
                   label=""
                   value={duration}
@@ -153,11 +169,11 @@ export default function EditScheduleScreen() {
                         style={[
                           styles.dayBtn,
                           { borderColor: theme.border },
-                          days.includes(d.id) && { backgroundColor: colors.primary }
+                          days.includes(d.id) && { backgroundColor: colors.primary, borderColor: colors.primary }
                         ]}
                         onPress={() => toggleDay(d.id)}
                       >
-                        <Text style={{ color: days.includes(d.id) ? '#fff' : theme.text }}>
+                        <Text style={{ color: days.includes(d.id) ? '#fff' : theme.text, fontSize: 12, fontWeight: '600' }}>
                           {d.short}
                         </Text>
                       </TouchableOpacity>
@@ -179,7 +195,7 @@ export default function EditScheduleScreen() {
               )}
             </View>
 
-            {/* Active */}
+            {/* Active Status */}
             <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
               <Text style={[styles.section, { color: theme.text }]}>Status</Text>
               <View style={styles.group}>
@@ -197,8 +213,18 @@ export default function EditScheduleScreen() {
 
             {/* Buttons */}
             <View style={styles.buttons}>
-              <Button title="Save" onPress={onSave} loading={isLoading} />
-              <Button title="Cancel" onPress={() => navigation.goBack()} variant="outline" />
+              <Button 
+                title="Cancel" 
+                onPress={() => navigation.goBack()} 
+                variant="outline" 
+                style={{ flex: 1, marginRight: 10 }}
+              />
+              <Button 
+                title="Save Changes" 
+                onPress={onSave} 
+                loading={isLoading} 
+                style={{ flex: 1 }}
+              />
             </View>
           </ScrollView>
         </SafeAreaView>
@@ -216,36 +242,44 @@ const styles = StyleSheet.create({
   },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   card: {
-    borderRadius: 12,
+    borderRadius: 16,
     borderWidth: 1,
     marginBottom: 16,
-    padding: 16
+    padding: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
   },
-  section: { fontSize: 16, fontWeight: '600', marginBottom: 8 },
-  group: { marginBottom: 12 },
-  label: { fontSize: 14, fontWeight: '500', marginBottom: 4 },
+  section: { fontSize: 18, fontWeight: '700', marginBottom: 16, letterSpacing: -0.5 },
+  group: { marginBottom: 20 },
+  label: { fontSize: 14, fontWeight: '600', marginBottom: 8, opacity: 0.8 },
   input: {
     borderWidth: 1,
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 8
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    fontSize: 16
   },
   switchRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center'
   },
-  days: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  days: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   dayBtn: {
     borderWidth: 1,
     borderRadius: 20,
-    padding: 8,
-    minWidth: 32,
-    alignItems: 'center'
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   buttons: {
     flexDirection: 'row',
-    justifyContent: 'space-around',
-    marginTop: 24
+    justifyContent: 'space-between',
+    marginTop: 10,
+    marginBottom: 20
   }
 });

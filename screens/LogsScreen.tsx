@@ -12,77 +12,68 @@ import { LinearGradient } from 'expo-linear-gradient';
 
 import { useLogsStore } from '../stores/logs-store';
 import LogItem from '../components/LogItem';
-import colors from '../constants/colors';
+import AppColors from '../constants/colors';
 import { useThemeStore } from '../stores/theme-store';
 
 export default function LogsScreen() {
   const insets = useSafeAreaInsets();
-  const scheme = useThemeStore((state) => state.theme);
-  const theme = scheme === 'dark' ? colors.dark : colors.light;
+  const { theme } = useThemeStore();
+  
+  const themeColors = AppColors[theme === 'dark' ? 'dark' : 'light'];
 
   const { logs, isLoading, error, fetchLogs } = useLogsStore();
 
   useFocusEffect(
     useCallback(() => {
       fetchLogs();
-    }, [fetchLogs])
+    }, [])
   );
 
-  if (error) {
-    return (
-      <LinearGradient
-        colors={[theme.background, theme.backgroundSecondary]}
-        style={{ flex: 1, paddingBottom: insets.bottom }}
-      >
-        <SafeAreaView style={{ flex: 1 }}>
-          <View style={[styles.container, { backgroundColor: 'transparent' }]}>
-            <Text style={[styles.title, { color: theme.text }]}>
-              Irrigation Logs
+  const renderContent = () => (
+    <View style={styles.container}>
+      <Text style={[styles.title, { color: themeColors.text }]}>
+        Irrigation Logs
+      </Text>
+
+      {error ? (
+         <View style={styles.errorContainer}>
+            <Text style={[styles.errorText, { color: AppColors.danger }]}>
+              {error}
             </Text>
-            <View style={styles.errorContainer}>
-              <Text style={[styles.errorText, { color: colors.danger }]}>
-                {error}
+         </View>
+      ) : (
+        <FlatList
+          data={logs}
+          keyExtractor={(item) => (item.id ? item.id.toString() : Math.random().toString())}
+          renderItem={({ item }) => <LogItem log={item} />}
+          contentContainerStyle={styles.listContent}
+          refreshControl={
+            <RefreshControl
+              refreshing={isLoading}
+              onRefresh={fetchLogs}
+              colors={[AppColors.primary]}
+              tintColor={AppColors.primary}
+            />
+          }
+          ListEmptyComponent={() => (
+            <View style={styles.emptyContainer}>
+              <Text style={[styles.emptyText, { color: themeColors.textSecondary }]}>
+                No logs found. Irrigation events will appear here.
               </Text>
             </View>
-          </View>
-        </SafeAreaView>
-      </LinearGradient>
-    );
-  }
+          )}
+        />
+      )}
+    </View>
+  );
 
   return (
     <LinearGradient
-      colors={[theme.background, theme.backgroundSecondary]}
+      colors={[themeColors.background, themeColors.backgroundSecondary]}
       style={{ flex: 1, paddingBottom: insets.bottom }}
     >
       <SafeAreaView style={{ flex: 1 }}>
-        <View style={[styles.container, { backgroundColor: 'transparent' }]}>
-          <Text style={[styles.title, { color: theme.text }]}>
-            Irrigation Logs
-          </Text>
-
-          <FlatList
-            data={logs}
-            keyExtractor={(item) => item.id.toString()}
-            renderItem={({ item }) => <LogItem log={item} />}
-            contentContainerStyle={styles.listContent}
-            refreshControl={
-              <RefreshControl
-                refreshing={isLoading}
-                onRefresh={fetchLogs}
-                colors={[colors.primary]}
-                tintColor={colors.primary}
-              />
-            }
-            ListEmptyComponent={() => (
-              <View style={styles.emptyContainer}>
-                <Text style={[styles.emptyText, { color: theme.textSecondary }]}>
-                  No logs found. Irrigation events will appear here.
-                </Text>
-              </View>
-            )}
-          />
-        </View>
+        {renderContent()}
       </SafeAreaView>
     </LinearGradient>
   );
@@ -96,7 +87,7 @@ const styles = StyleSheet.create({
     padding: 16,
   },
   listContent: {
-    paddingHorizontal: 8,
+    paddingHorizontal: 16,
     paddingBottom: 90,
     gap: 12,
   },
@@ -111,6 +102,7 @@ const styles = StyleSheet.create({
     padding: 24,
     alignItems: 'center',
     justifyContent: 'center',
+    marginTop: 50
   },
   emptyText: { fontSize: 16, textAlign: 'center' },
 });

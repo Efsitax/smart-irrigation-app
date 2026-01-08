@@ -1,10 +1,8 @@
-// stores/logs-store.ts
 import { create } from 'zustand';
-import { getMotorLogs } from '../api/motorService';
-import { MotorLogDto } from '../types/irrigation';
+import { getMotorLogs, MotorLog } from '../services/DatabaseService';
 
 interface LogsState {
-  logs: MotorLogDto[] | null;
+  logs: MotorLog[] | null;
   isLoading: boolean;
   error: string | null;
   fetchLogs: () => Promise<void>;
@@ -18,10 +16,11 @@ export const useLogsStore = create<LogsState>((set) => ({
   fetchLogs: async () => {
     set({ isLoading: true, error: null });
     try {
-      const data = await getMotorLogs();
+      const data = getMotorLogs(); 
       set({ logs: data, isLoading: false });
     } catch (err: any) {
-      set({ error: err.message || 'Failed to fetch logs', isLoading: false });
+      console.error("Log hatası:", err);
+      set({ error: 'Geçmiş veriler yüklenemedi.', isLoading: false });
     }
   },
 }));

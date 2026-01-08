@@ -42,6 +42,7 @@ export interface CreateScheduleDto {
   durationInSeconds: number;      // Irrigation duration in seconds
   repeatDaily: boolean;         // If false, uses specificDate instead
   specificDate?: string;        // "YYYY-MM-DD" format, optional one-time date
+  active?: boolean
 }
 
 export interface UpdateScheduleDto extends CreateScheduleDto {

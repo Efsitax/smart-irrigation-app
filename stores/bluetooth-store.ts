@@ -1,154 +1,207 @@
 import { create } from 'zustand';
-import { NativeModules, NativeEventEmitter, Platform, PermissionsAndroid } from 'react-native';
-import { BluetoothDevice, WiFiCredentials, ConnectionStatus } from '../types/bluetooth';
+import { BleManager, Device } from 'react-native-ble-plx';
+import { Platform, PermissionsAndroid, Alert } from 'react-native';
+import { decode as atob, encode as btoa } from 'base-64';
+import { BluetoothDevice, ConnectionStatus } from '../types/bluetooth';
 
-const { ClassicBluetoothModule } = NativeModules;
-const BluetoothEvents = new NativeEventEmitter(ClassicBluetoothModule);
+const SERVICE_UUID = "6E400001-B5A3-F393-E0A9-E50E24DCCA9E";
+const RX_UUID      = "6E400002-B5A3-F393-E0A9-E50E24DCCA9E"; 
+const TX_UUID      = "6E400003-B5A3-F393-E0A9-E50E24DCCA9E"; 
 
 interface BluetoothState {
+  manager: BleManager;
   devices: BluetoothDevice[];
-  selectedDevice: BluetoothDevice | null;
+  connectedDevice: Device | null;
   connectionStatus: ConnectionStatus;
   isScanning: boolean;
-  error: string | null;
+  
+  telemetry: { 
+    moisture: number; 
+    battery: number; 
+    isPumpOn: boolean;
+  };
 
   startScan: () => Promise<void>;
   stopScan: () => void;
-  selectDevice: (device: BluetoothDevice) => void;
-  sendWiFiCredentials: (credentials: WiFiCredentials) => Promise<void>;
-  resetConnection: () => void;
-  clearError: () => void;
+  connectToDevice: (deviceId: string) => Promise<void>;
+  disconnect: () => void;
+  sendCommand: (command: string, duration?: number) => Promise<void>;
+  clearErrors: () => void;
 }
 
 export const useBluetoothStore = create<BluetoothState>((set, get) => ({
+  manager: new BleManager(),
   devices: [],
-  selectedDevice: null,
+  connectedDevice: null,
   connectionStatus: { status: 'idle' },
   isScanning: false,
-  error: null,
+  telemetry: { moisture: 0, battery: 0, isPumpOn: false },
 
   startScan: async () => {
+    const { manager } = get();
+
     if (Platform.OS === 'android') {
-      const permissions = await PermissionsAndroid.requestMultiple([
-        PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT,
-        PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
+      const granted = await PermissionsAndroid.requestMultiple([
         PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
+        PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
+        PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT,
       ]);
 
-      const allGranted = Object.values(permissions).every(
-        (res) => res === PermissionsAndroid.RESULTS.GRANTED
-      );
-
-      if (!allGranted) {
-        set({ error: 'Bluetooth or location permission denied.' });
+      if (
+        granted['android.permission.BLUETOOTH_SCAN'] === PermissionsAndroid.RESULTS.DENIED ||
+        granted['android.permission.BLUETOOTH_CONNECT'] === PermissionsAndroid.RESULTS.DENIED
+      ) {
+        set({ connectionStatus: { status: 'error', message: 'Bluetooth permission denied' } });
         return;
       }
     }
 
-    set({ isScanning: true, devices: [], error: null });
+    set({ isScanning: true, devices: [], connectionStatus: { status: 'scanning', message: 'Scanning devices...' } });
 
-    try {
-      ClassicBluetoothModule.startScan();
+    manager.startDeviceScan([SERVICE_UUID], null, (error, device) => {
+      if (error) {
+        console.log('Scan Error:', error);
+        set({ isScanning: false, connectionStatus: { status: 'error', message: 'Scan failed' } });
+        return;
+      }
 
-      BluetoothEvents.removeAllListeners('DeviceFound');
-      BluetoothEvents.addListener('DeviceFound', (device: any) => {
-        const newDevice: BluetoothDevice = {
-        id: device.id,
-        name: device.name || 'Unknown Device',
-        rssi: device.rssi,
-        isConnectable: true,
-        };
-        
+      if (device && device.name) {
         set((state) => {
-          const exists = state.devices.some((d) => d.id === newDevice.id);
-          if (exists) return state;
-
+          if (state.devices.some((d) => d.id === device.id)) return state;
           return {
-            devices: [...state.devices, newDevice],
+            devices: [
+              ...state.devices,
+              {
+                id: device.id,
+                name: device.name || 'Unknown Device',
+                rssi: device.rssi || -1,
+                isConnectable: device.isConnectable,
+              },
+            ],
           };
         });
-      });
+      }
+    });
 
-      setTimeout(() => {
-        ClassicBluetoothModule.stopScan();
-        set({ isScanning: false });
-      }, 8000);
-    } catch (err: any) {
-      set({
-        error: err?.message || 'Failed to start Bluetooth scan.',
-        isScanning: false,
-      });
-    }
+    setTimeout(() => {
+      get().stopScan();
+    }, 10000);
   },
 
   stopScan: () => {
-    ClassicBluetoothModule.stopScan();
-    set({ isScanning: false });
+    get().manager.stopDeviceScan();
+    set({ isScanning: false, connectionStatus: { status: 'idle' } });
   },
 
-  selectDevice: (device) => {
-    set({ selectedDevice: device, error: null });
-  },
+  connectToDevice: async (deviceId: string) => {
+    get().stopScan();
+    const { manager } = get();
 
-  sendWiFiCredentials: async (credentials) => {
-    const { selectedDevice } = get();
-
-    if (!selectedDevice) {
-      set({ error: 'No device selected.' });
-      return;
-    }
-
-    if (!credentials.ssid.trim()) {
-      set({ error: 'SSID is required.' });
-      return;
-    }
-
-    set({
-      connectionStatus: { status: 'connecting', message: 'Connecting to device...', progress: 0 },
-      error: null,
-    });
+    set({ connectionStatus: { status: 'connecting', message: 'Connecting...' } });
 
     try {
-      await ClassicBluetoothModule.connectToDevice(selectedDevice.id);
-
-      set({
-        connectionStatus: {
-          status: 'sending',
-          message: 'Sending Wi-Fi credentials...',
-          progress: 50,
-        },
+      const device = await manager.connectToDevice(deviceId);
+      const discovered = await device.discoverAllServicesAndCharacteristics();
+      
+      set({ 
+        connectedDevice: discovered, 
+        connectionStatus: { status: 'success', message: 'Connected!' } 
       });
 
-      const payload = `${credentials.ssid},${credentials.password}`;
-      await ClassicBluetoothModule.sendData(payload);
+      setTimeout(() => {
+         set({ connectionStatus: { status: 'idle' } });
+      }, 2000);
 
-      set({
-        connectionStatus: {
-          status: 'success',
-          message: 'Wi-Fi credentials sent successfully!',
-          progress: 100,
-        },
-      });
+      discovered.monitorCharacteristicForService(
+        SERVICE_UUID,
+        TX_UUID,
+        (error, characteristic) => {
+          if (error) {
+            if(error.errorCode === 201 || error.message?.includes('disconnected')) {
+                set({ 
+                    connectedDevice: null, 
+                    connectionStatus: { status: 'error', message: 'Device Disconnected' } 
+                });
+            }
+            return;
+          }
 
-      ClassicBluetoothModule.disconnect();
-    } catch (err: any) {
-      set({
-        connectionStatus: { status: 'error', message: 'Connection failed.' },
-        error: err?.message || 'Bluetooth error occurred.',
+          const rawData = atob(characteristic?.value || '');
+          try {
+            if (rawData.includes('{') && rawData.includes('}')) {
+               const cleanJson = rawData.substring(rawData.indexOf('{'), rawData.lastIndexOf('}') + 1);
+               const parsed = JSON.parse(cleanJson);
+
+               set((state) => ({
+                 telemetry: {
+                   moisture: parsed.moisture ?? state.telemetry.moisture,
+                   battery: parsed.battery ?? state.telemetry.battery,
+                   isPumpOn: parsed.command === 'ON' ? true : (parsed.command === 'OFF' ? false : state.telemetry.isPumpOn)
+                 }
+               }));
+            }
+          } catch (e) {
+            console.log('JSON Parse Error:', e);
+          }
+        }
+      );
+
+    } catch (error: any) {
+      console.log('Connection Error:', error);
+      set({ 
+          connectedDevice: null, 
+          connectionStatus: { status: 'error', message: 'Failed to connect' } 
       });
     }
   },
 
-  resetConnection: () => {
-    set({
-      devices: [],
-      selectedDevice: null,
-      connectionStatus: { status: 'idle' },
-      error: null,
+  disconnect: () => {
+    const { connectedDevice } = get();
+    if (connectedDevice) {
+      connectedDevice.cancelConnection();
+    }
+    set({ 
+        connectedDevice: null, 
+        connectionStatus: { status: 'idle' },
+        telemetry: { moisture: 0, battery: 0, isPumpOn: false }
     });
   },
 
-  clearError: () => {
-    set({ error: null });
+  sendCommand: async (command: string, duration = 0) => {
+    const { connectedDevice } = get();
+    if (!connectedDevice) {
+        Alert.alert("Error", "Device not connected");
+        return;
+    }
+
+    const payload = JSON.stringify({ command, duration });
+
+    try {
+        set({ connectionStatus: { status: 'sending', message: 'Sending command...' } });
+        
+        await connectedDevice.writeCharacteristicWithResponseForService(
+            SERVICE_UUID,
+            RX_UUID,
+            btoa(payload)
+        );
+
+        set({ connectionStatus: { status: 'success', message: 'Command sent!' } });
+        
+        setTimeout(() => {
+            set((state) => ({
+                 connectionStatus: state.connectionStatus.status === 'success' 
+                 ? { status: 'idle' } 
+                 : state.connectionStatus 
+            }));
+        }, 2000);
+
+    } catch (error) {
+        console.log('Send Error:', error);
+        set({ connectionStatus: { status: 'error', message: 'Failed to send command' } });
+    }
   },
+  
+  clearErrors: () => {
+      set({ connectionStatus: { status: 'idle' } });
+  }
 }));

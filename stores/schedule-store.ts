@@ -1,16 +1,16 @@
-// stores/schedule-store.ts
 import { create } from 'zustand';
 import {
-  getAllSchedules,
-  createSchedule,
-  updateSchedule,
-  deleteSchedule,
-  deactivateSchedule
-} from '../api/scheduleService';
+  getSchedules as getSchedulesFromDb,
+  addSchedule as addScheduleToDb,
+  deleteSchedule as deleteScheduleFromDb,
+  toggleSchedule as toggleScheduleInDb,
+  updateSchedule as updateScheduleInDb
+} from '../services/DatabaseService';
 import {
   ScheduleResponseDto,
   CreateScheduleDto,
-  UpdateScheduleDto
+  UpdateScheduleDto,
+  DayOfWeek
 } from '../types/irrigation';
 
 interface ScheduleState {
@@ -21,10 +21,10 @@ interface ScheduleState {
   addSchedule: (dto: CreateScheduleDto) => Promise<void>;
   editSchedule: (id: number, dto: UpdateScheduleDto) => Promise<void>;
   removeSchedule: (id: number) => Promise<void>;
-  disableSchedule: (id: number) => Promise<void>;
+  disableSchedule: (id: number, isActive: boolean) => Promise<void>;
 }
 
-export const useScheduleStore = create<ScheduleState>((set) => ({
+export const useScheduleStore = create<ScheduleState>((set, get) => ({
   schedules: [],
   isLoading: false,
   error: null,
@@ -32,50 +32,72 @@ export const useScheduleStore = create<ScheduleState>((set) => ({
   fetchSchedules: async () => {
     set({ isLoading: true, error: null });
     try {
-      const data = await getAllSchedules();
-      set({ schedules: data, isLoading: false });
+      const rawSchedules = getSchedulesFromDb();
+      const mappedSchedules: ScheduleResponseDto[] = rawSchedules.map((s) => ({
+        id: s.id,
+        time: s.time,
+        days: s.days ? (JSON.parse(s.days) as DayOfWeek[]) : [],
+        durationInSeconds: s.durationInSeconds,
+        repeatDaily: s.repeatDaily,
+        specificDate: s.specificDate || undefined,
+        active: s.active
+      }));
+      set({ schedules: mappedSchedules, isLoading: false });
     } catch (err: any) {
-      set({ error: err.message, isLoading: false });
+      set({ error: 'Failed to load schedules', isLoading: false });
     }
   },
 
   addSchedule: async (dto) => {
     set({ isLoading: true, error: null });
     try {
-      await createSchedule(dto);
-      await getAllSchedules().then(data => set({ schedules: data }));
+      addScheduleToDb({
+        time: dto.time,
+        days: JSON.stringify(dto.days),
+        durationInSeconds: dto.durationInSeconds,
+        repeatDaily: dto.repeatDaily,
+        specificDate: dto.specificDate || null,
+        active: dto.active ?? true
+      });
+      get().fetchSchedules();
     } catch (err: any) {
-      set({ error: err.message, isLoading: false });
+      set({ error: 'Failed to create schedule', isLoading: false });
     }
   },
 
   editSchedule: async (id, dto) => {
     set({ isLoading: true, error: null });
     try {
-      await updateSchedule(id, dto);
-      await getAllSchedules().then(data => set({ schedules: data }));
+      updateScheduleInDb(id, {
+        time: dto.time,
+        days: dto.days ? JSON.stringify(dto.days) : undefined,
+        durationInSeconds: dto.durationInSeconds,
+        repeatDaily: dto.repeatDaily,
+        specificDate: dto.specificDate || null,
+        active: dto.active
+      });
+      get().fetchSchedules();
     } catch (err: any) {
-      set({ error: err.message, isLoading: false });
+       console.error(err);
+       set({ error: 'Failed to update schedule', isLoading: false });
     }
   },
 
   removeSchedule: async (id) => {
-    set({ isLoading: true, error: null });
     try {
-      await deleteSchedule(id);
-      await getAllSchedules().then(data => set({ schedules: data }));
+      deleteScheduleFromDb(id);
+      get().fetchSchedules();
     } catch (err: any) {
-      set({ error: err.message, isLoading: false });
+      set({ error: 'Failed to delete schedule', isLoading: false });
     }
   },
 
-  disableSchedule: async (id) => {
-    set({ isLoading: true, error: null });
+  disableSchedule: async (id, isActive) => {
     try {
-      await deactivateSchedule(id);
-      await getAllSchedules().then(data => set({ schedules: data }));
+      toggleScheduleInDb(id, isActive);
+      get().fetchSchedules();
     } catch (err: any) {
-      set({ error: err.message, isLoading: false });
+      set({ error: 'Failed to update status', isLoading: false });
     }
   },
 }));

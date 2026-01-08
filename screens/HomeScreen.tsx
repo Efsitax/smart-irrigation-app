@@ -1,4 +1,4 @@
-import React, { useCallback } from 'react';
+import React, { useCallback, useEffect } from 'react';
 import {
   View,
   Text,
@@ -8,11 +8,18 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect } from '@react-navigation/native';
-import { Droplets, Activity, Wifi } from 'lucide-react-native';
+import { Droplets, Activity, Wifi, WifiOff } from 'lucide-react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
+// Stores
 import { useDashboardStore } from '../stores/dashboard-store';
+import { useBluetoothStore } from '../stores/bluetooth-store';
 import { useThemeStore } from '../stores/theme-store';
+
+// Services
+import { saveSensorData } from '../services/DatabaseService';
+
+// Components
 import MoistureIndicator from '../components/MoistureIndicator';
 import BatteryIndicator from '../components/BatteryIndicator';
 import Card from '../components/Card';
@@ -22,32 +29,64 @@ export default function HomeScreen() {
   const theme = useThemeStore((state) => state.theme);
   const themeColors = theme === 'dark' ? colors.dark : colors.light;
 
+  // 1. OFFLINE DATA (DB)
   const {
-    moisture,
-    battery,
+    moisture: dbMoisture,
+    battery: dbBattery,
     isLoading,
     error,
     fetchData,
     lastUpdated,
   } = useDashboardStore();
 
-  // Ekran odaklandığında ve her 60 saniyede bir veriyi çek
+  // 2. LIVE DATA (Bluetooth)
+  const { connectedDevice, telemetry } = useBluetoothStore();
+  const isConnected = !!connectedDevice;
+
+  // Determine which data to show
+  const currentMoisture = isConnected ? telemetry.moisture : (dbMoisture ?? 0);
+  const currentBattery = isConnected ? telemetry.battery : (dbBattery ?? 0);
+  
+  const displayTimestamp = isConnected 
+    ? 'Live Data' 
+    : (lastUpdated ? new Date(lastUpdated).toLocaleString() : 'No Data');
+
   useFocusEffect(
     useCallback(() => {
       fetchData();
-      const interval = setInterval(fetchData, 60_000);
-      return () => clearInterval(interval);
-    }, [fetchData])
+    }, [])
   );
 
-  const formatTimestamp = (ts?: string | null) => {
-    if (!ts) return 'Never';
-    const d = new Date(ts);
-    return isNaN(d.getTime()) ? 'Invalid date' : d.toLocaleString();
-  };
+  // AUTO SAVE LOGIC
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+
+    if (isConnected) {
+        interval = setInterval(() => {
+            if (telemetry.moisture > 0 || telemetry.battery > 0) {
+                console.log("Saving live data to DB...");
+                saveSensorData(telemetry.moisture, telemetry.battery);
+                fetchData(); 
+            }
+        }, 60000); // 1 Minute
+    }
+
+    return () => clearInterval(interval);
+  }, [isConnected, telemetry]);
+
 
   const getStatusInfo = () => {
-    const val = moisture ?? 0;
+    // FIX: colors.gray yerine themeColors.textSecondary kullanıldı
+    if (!isConnected && !lastUpdated) {
+        return {
+            color: themeColors.textSecondary, 
+            text: 'No Connection',
+            icon: WifiOff,
+            gradient: ['#9ca3af', '#4b5563'] as const,
+        };
+    }
+
+    const val = currentMoisture;
     if (val < 30) {
       return {
         color: colors.danger,
@@ -77,8 +116,8 @@ export default function HomeScreen() {
 
   return (
     <LinearGradient
-      colors={[themeColors.background, themeColors.backgroundSecondary]} // 💡 updated
-      style={{ flex: 1, paddingBottom: insets.bottom }} // ✅ Home Indicator alanına gradient uygulanır
+      colors={[themeColors.background, themeColors.backgroundSecondary]}
+      style={{ flex: 1, paddingBottom: insets.bottom }}
     >
       <SafeAreaView style={{ flex: 1 }}>
         <ScrollView
@@ -96,11 +135,11 @@ export default function HomeScreen() {
           {/* Header */}
           <View style={styles.header}>
             <View>
-              <Text style={[styles.title, { color: themeColors.text }]}> {/* 💡 updated */}
+              <Text style={[styles.title, { color: themeColors.text }]}>
                 Smart Garden
               </Text>
-              <Text style={[styles.subtitle, { color: themeColors.textSecondary }]}> {/* 💡 updated */}
-                Irrigation System Dashboard
+              <Text style={[styles.subtitle, { color: themeColors.textSecondary }]}>
+                {isConnected ? '🟢 System Connected' : '⚪ Offline Mode'}
               </Text>
             </View>
             <View
@@ -128,25 +167,28 @@ export default function HomeScreen() {
             <>
               {/* Main Moisture */}
               <Card variant="elevated" style={styles.moistureCard}>
-                <MoistureIndicator value={moisture ?? 0} size={220} />
+                <MoistureIndicator value={currentMoisture} size={220} />
                 <View style={styles.timestampContainer}>
-                  <Text style={[styles.timestampLabel, { color: themeColors.textSecondary }]}> {/* 💡 updated */}
-                    Last reading
+                  <Text style={[styles.timestampLabel, { color: themeColors.textSecondary }]}>
+                    {isConnected ? 'Live Reading' : 'Last Reading'}
                   </Text>
-                  <Text style={[styles.timestampText, { color: themeColors.text }]}> {/* 💡 updated */}
-                    {formatTimestamp(lastUpdated)}
+                  <Text style={[styles.timestampText, { color: themeColors.text }]}>
+                    {displayTimestamp}
                   </Text>
                 </View>
               </Card>
 
               {/* System Status */}
-              <Card variant="gradient" gradientColors={status.gradient}>
+              <Card variant="gradient" gradientColors={status.gradient as any}>
                 <View style={styles.systemStatus}>
                   <Text style={styles.systemTitle}>System Status</Text>
-                  <BatteryIndicator level={battery ?? 0} size={28} />
+                  <BatteryIndicator level={currentBattery} size={28} />
                   <View style={styles.statusDetails}>
                     <Text style={styles.statusDetailText}>
-                      Battery updated: {formatTimestamp(lastUpdated)}
+                       {isConnected 
+                         ? `Signal: ${connectedDevice?.rssi || '-'} dBm`
+                         : `Battery Last Info: ${currentBattery}%`
+                       }
                     </Text>
                   </View>
                 </View>
@@ -164,10 +206,10 @@ export default function HomeScreen() {
                     >
                       <Droplets size={20} color={colors.primary} />
                     </View>
-                    <Text style={[styles.statValue, { color: themeColors.text }]}> {/* 💡 updated */}
-                      {moisture ?? 0}%
+                    <Text style={[styles.statValue, { color: themeColors.text }]}>
+                      {currentMoisture}%
                     </Text>
-                    <Text style={[styles.statLabel, { color: themeColors.textSecondary }]}> {/* 💡 updated */}
+                    <Text style={[styles.statLabel, { color: themeColors.textSecondary }]}>
                       Moisture
                     </Text>
                   </View>
@@ -183,20 +225,23 @@ export default function HomeScreen() {
                     >
                       <Activity size={20} color={colors.secondary} />
                     </View>
-                    <Text style={[styles.statValue, { color: themeColors.text }]}> {/* 💡 updated */}
-                      {battery ?? 0}%
+                    <Text style={[styles.statValue, { color: themeColors.text }]}>
+                      {currentBattery}%
                     </Text>
-                    <Text style={[styles.statLabel, { color: themeColors.textSecondary }]}> {/* 💡 updated */}
+                    <Text style={[styles.statLabel, { color: themeColors.textSecondary }]}>
                       Battery
                     </Text>
                   </View>
                 </Card>
               </View>
 
-              {/* Last Update */}
+              {/* Footer Info */}
               <View style={styles.lastUpdateContainer}>
-                <Text style={[styles.lastUpdateText, { color: themeColors.textTertiary }]}> {/* 💡 updated */}
-                  Dashboard updated: {formatTimestamp(lastUpdated)}
+                <Text style={[styles.lastUpdateText, { color: themeColors.textTertiary }]}>
+                  {isConnected 
+                    ? "Saving data automatically every minute..."
+                    : "Connect via Bluetooth for live updates"
+                  }
                 </Text>
               </View>
             </>

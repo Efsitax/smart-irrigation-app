@@ -1,23 +1,20 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   Switch,
   ScrollView,
+  Alert
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect } from '@react-navigation/native';
 import { Power, Settings as SettingsIcon } from 'lucide-react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import {
-  getMotorState,
-  manualMotorControl,
-  updateMotorState
-} from '../api/motorService';
+import { getMotorState, updateMotorState, addMotorLog } from '../services/DatabaseService';
+import { useBluetoothStore } from '../stores/bluetooth-store';
 
-import { useSettingsStore } from '../stores/settings-store';
 import { useThemeStore } from '../stores/theme-store';
 
 import Button from '../components/Button';
@@ -30,84 +27,91 @@ export default function MotorControlScreen() {
   const scheme = useThemeStore((state) => state.theme);
   const theme = scheme === 'dark' ? colors.dark : colors.light;
 
-  const [isOn, setIsOn] = useState(false);
+  const { sendCommand, connectedDevice, telemetry } = useBluetoothStore();
+  const isOn = telemetry?.isPumpOn || false; 
+  
   const [autoControl, setAutoControl] = useState(false);
+  const [moistureThreshold, setMoistureThreshold] = useState(30);
+  const [autoDurationSeconds, setAutoDurationSeconds] = useState(10);
+  const [manualDurationSeconds, setManualDurationSeconds] = useState(10);
+  
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const {
-    moistureThreshold,
-    autoDurationSeconds,
-    manualDurationSeconds,
-    loadSettings,
-    saveSettings,
-  } = useSettingsStore();
-
-  const fetchMotorState = async () => {
+  const fetchSettings = () => {
     try {
-      setIsLoading(true);
-      const state = await getMotorState();
-      setIsOn(state.isOn);
-      setAutoControl(state.autoControl);
-      await loadSettings(); // sadece threshold/duration değerleri için
+      const state = getMotorState();
+      if (state) {
+        setAutoControl(state.autoControl);
+        setMoistureThreshold(state.moistureThreshold);
+        setAutoDurationSeconds(state.autoDurationSeconds);
+        setManualDurationSeconds(state.manualDurationSeconds);
+      }
     } catch (err: any) {
-      setError(err.message || 'Failed to fetch motor state');
-    } finally {
-      setIsLoading(false);
+      console.log("Error fetching settings:", err);
     }
   };
 
   useFocusEffect(
     useCallback(() => {
-      fetchMotorState();
-      const iv = setInterval(fetchMotorState, 5000);
-      return () => clearInterval(iv);
+      fetchSettings();
     }, [])
   );
 
   const handleToggleMotor = async () => {
+    if (!connectedDevice) {
+        Alert.alert("Connection Error", "Device not connected. Please connect via Bluetooth first.");
+        return;
+    }
+
+    if (isOn) return;
+
     try {
       setIsLoading(true);
-      await manualMotorControl();
-      await fetchMotorState();
+      setError(null);
+
+      await sendCommand("ON", manualDurationSeconds);
+      
+      try {
+          addMotorLog({
+              startTime: new Date().toISOString(),
+              durationSeconds: manualDurationSeconds,
+              moistureAtTrigger: telemetry.moisture || 0,
+              mode: 'MANUAL'
+          });
+      } catch (e) {
+          console.log("Log error:", e);
+      }
+
+      fetchSettings();
+      
     } catch (err: any) {
-      setError(err.message || 'Failed to start motor');
+      setError(err.message || 'Failed to send command');
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleToggleAutoControl = async (val: boolean) => {
-    setAutoControl(val);
-    try {
-      setIsLoading(true);
-      await updateMotorState({
-        autoControl: val,
-        moistureThreshold,
-        autoDurationSeconds,
-        manualDurationSeconds,
-      });
-    } catch (err: any) {
-      setError(err.message || 'Failed to update auto control setting');
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  const saveLocalSettings = (newSettings: any) => {
+      try {
+          setIsLoading(true);
+          
+          updateMotorState(newSettings);
+          
+          if (newSettings.autoControl !== undefined) setAutoControl(newSettings.autoControl);
+          if (newSettings.moistureThreshold !== undefined) setMoistureThreshold(newSettings.moistureThreshold);
+          if (newSettings.autoDurationSeconds !== undefined) setAutoDurationSeconds(newSettings.autoDurationSeconds);
+          if (newSettings.manualDurationSeconds !== undefined) setManualDurationSeconds(newSettings.manualDurationSeconds);
+          
+      } catch (err: any) {
+          setError("Failed to save settings");
+      } finally {
+          setIsLoading(false);
+      }
+  }
 
-  const handleSaveSettings = async () => {
-    try {
-      setIsLoading(true);
-      await saveSettings({
-        autoControl,
-        moistureThreshold,
-        autoDurationSeconds,
-        manualDurationSeconds,
-      });
-    } catch (err: any) {
-      setError(err.message || 'Failed to save settings');
-    } finally {
-      setIsLoading(false);
-    }
+  const handleToggleAutoControl = (val: boolean) => {
+      saveLocalSettings({ autoControl: val });
   };
 
   const motorInfo = autoControl
@@ -123,6 +127,7 @@ export default function MotorControlScreen() {
     >
       <SafeAreaView style={{ flex: 1 }}>
         <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+
           <View style={styles.header}>
             <View>
               <Text style={[styles.title, { color: theme.text }]}>Motor Control</Text>
@@ -184,14 +189,7 @@ export default function MotorControlScreen() {
                     <ThresholdInput
                       label="Moisture Threshold"
                       value={moistureThreshold}
-                      onValueChange={(val) =>
-                        saveSettings({
-                          autoControl,
-                          moistureThreshold: val,
-                          autoDurationSeconds,
-                          manualDurationSeconds,
-                        })
-                      }
+                      onValueChange={(val) => saveLocalSettings({ moistureThreshold: val })}
                       min={0}
                       max={100}
                       unit="%"
@@ -199,14 +197,7 @@ export default function MotorControlScreen() {
                     <ThresholdInput
                       label="Auto Duration"
                       value={autoDurationSeconds}
-                      onValueChange={(val) =>
-                        saveSettings({
-                          autoControl,
-                          moistureThreshold,
-                          autoDurationSeconds: val,
-                          manualDurationSeconds,
-                        })
-                      }
+                      onValueChange={(val) => saveLocalSettings({ autoDurationSeconds: val })}
                       min={5}
                       max={600}
                       unit="sec"
@@ -214,28 +205,12 @@ export default function MotorControlScreen() {
                     <ThresholdInput
                       label="Manual Duration"
                       value={manualDurationSeconds}
-                      onValueChange={(val) =>
-                        saveSettings({
-                          autoControl,
-                          moistureThreshold,
-                          autoDurationSeconds,
-                          manualDurationSeconds: val,
-                        })
-                      }
+                      onValueChange={(val) => saveLocalSettings({ manualDurationSeconds: val })}
                       min={5}
                       max={600}
                       unit="sec"
                     />
                   </View>
-
-                  <Button
-                    title="Save Settings"
-                    onPress={handleSaveSettings}
-                    variant="gradient"
-                    gradientColors={colors.gradients.primary}
-                    loading={isLoading}
-                    style={styles.saveButton}
-                  />
                 </View>
               </Card>
             </>

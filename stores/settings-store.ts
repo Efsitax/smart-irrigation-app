@@ -1,9 +1,9 @@
-// stores/settings-store.ts
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { UpdateMotorStateDto } from '../types/irrigation';
-import { updateMotorState, getMotorState } from '../api/motorService';
+
+import { getMotorState, updateMotorState } from '../services/DatabaseService';
 
 interface SettingsState {
   autoControl: boolean;
@@ -18,7 +18,7 @@ interface SettingsState {
 
 export const useSettingsStore = create<SettingsState>()(
   persist(
-    set => ({
+    (set, get) => ({
       autoControl: false,
       moistureThreshold: 50,
       autoDurationSeconds: 10,
@@ -29,20 +29,29 @@ export const useSettingsStore = create<SettingsState>()(
       loadSettings: async () => {
         set({ isLoading: true, error: null });
         try {
-          const cfg = await getMotorState();
-          set({ ...cfg, isLoading: false });
+          const cfg = getMotorState();
+          set({ 
+            autoControl: cfg.autoControl,
+            moistureThreshold: cfg.moistureThreshold,
+            autoDurationSeconds: cfg.autoDurationSeconds,
+            manualDurationSeconds: cfg.manualDurationSeconds,
+            isLoading: false 
+          });
         } catch (err: any) {
-          set({ error: err.message, isLoading: false });
+          console.error(err);
+          set({ error: 'Failed to load settings', isLoading: false });
         }
       },
 
-      saveSettings: async cfg => {
+      saveSettings: async (cfg) => {
         set({ isLoading: true, error: null });
         try {
-          await updateMotorState(cfg);
+          updateMotorState(cfg);
+          
           set({ ...cfg, isLoading: false });
         } catch (err: any) {
-          set({ error: err.message, isLoading: false });
+          console.error(err);
+          set({ error: 'Failed to save settings', isLoading: false });
         }
       },
     }),

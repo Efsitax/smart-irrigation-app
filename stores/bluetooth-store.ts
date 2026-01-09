@@ -15,8 +15,6 @@ interface TelemetryData {
   moisture: number; 
   battery: number; 
   isPumpOn: boolean;
-  // If you want to support raw data from ESP32 (m, b), you can add optional fields here, 
-  // but it's cleanest to transform data within the store.
 }
 
 interface BluetoothState {
@@ -36,8 +34,7 @@ interface BluetoothState {
   connectToDevice: (deviceId: string) => Promise<void>;
   disconnect: () => void;
   
-  // Made the command sending function flexible.
-  // command: Can be a JSON string or a simple command like "ON".
+  // Sends a command (JSON string or shorthand like "ON")
   sendCommand: (commandOrJson: string, duration?: number) => Promise<void>;
   
   clearErrors: () => void;
@@ -56,6 +53,7 @@ export const useBluetoothStore = create<BluetoothState>((set, get) => ({
   startScan: async () => {
     const { manager } = get();
 
+    // --- Simulation Mode Logic ---
     if (SIMULATION_MODE) {
       console.log('[Simulation] Starting scan...');
       set({ isScanning: true, devices: [], connectionStatus: { status: 'scanning', message: 'Simulating Scan...' } });
@@ -78,6 +76,7 @@ export const useBluetoothStore = create<BluetoothState>((set, get) => ({
       return;
     }
 
+    // --- Real Scan Logic ---
     if (Platform.OS === 'android') {
       const granted = await PermissionsAndroid.requestMultiple([
         PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
@@ -105,6 +104,7 @@ export const useBluetoothStore = create<BluetoothState>((set, get) => ({
 
       if (device && device.name) {
         set((state) => {
+          // Prevent duplicates
           if (state.devices.some((d) => d.id === device.id)) return state;
           return {
             devices: [
@@ -121,6 +121,7 @@ export const useBluetoothStore = create<BluetoothState>((set, get) => ({
       }
     });
 
+    // Stop scanning automatically after 10 seconds
     setTimeout(() => {
       get().stopScan();
     }, 10000);
@@ -141,6 +142,7 @@ export const useBluetoothStore = create<BluetoothState>((set, get) => ({
 
     set({ connectionStatus: { status: 'connecting', message: 'Connecting...' } });
 
+    // --- Simulation Connection ---
     if (SIMULATION_MODE) {
         setTimeout(() => {
             set({ 
@@ -152,6 +154,7 @@ export const useBluetoothStore = create<BluetoothState>((set, get) => ({
                 set({ connectionStatus: { status: 'idle' } });
             }, 1000);
 
+            // Mock Data Generation
             const interval = setInterval(() => {
                 set((state) => ({
                     telemetry: {
@@ -160,7 +163,7 @@ export const useBluetoothStore = create<BluetoothState>((set, get) => ({
                         battery: Math.floor(Math.random() * (100 - 60 + 1)) + 60,
                     }
                 }));
-            }, 5000); // Send simulation data every 5 seconds
+            }, 5000);
 
             set({ simulationInterval: interval });
 
@@ -168,8 +171,19 @@ export const useBluetoothStore = create<BluetoothState>((set, get) => ({
         return;
     }
 
+    // --- Real Connection ---
     try {
       const device = await manager.connectToDevice(deviceId);
+
+      // Increase MTU on Android to prevent data truncation
+      if (Platform.OS === 'android') {
+        try {
+            await device.requestMTU(512);
+        } catch (e) {
+            console.log("MTU Request Failed (Not Critical):", e);
+        }
+      }
+
       const discovered = await device.discoverAllServicesAndCharacteristics();
       
       set({ 
@@ -177,19 +191,21 @@ export const useBluetoothStore = create<BluetoothState>((set, get) => ({
         connectionStatus: { status: 'success', message: 'Connected!' } 
       });
 
+      // Clear success message after 2 seconds
       setTimeout(() => {
          set({ connectionStatus: { status: 'idle' } });
       }, 2000);
 
       let dataBuffer = ""; 
 
-      // Monitor Data
+      // --- Monitor Incoming Data ---
       discovered.monitorCharacteristicForService(
         SERVICE_UUID,
         TX_UUID,
         (error, characteristic) => {
           if (error) {
-            if(error.errorCode === 201 || error.message?.includes('disconnected')) {
+            console.log("Monitor Error:", error);
+            if(error.errorCode === 201 || error.message?.includes('disconnected') || error.message?.includes('uuid')) {
                 set({ 
                     connectedDevice: null, 
                     connectionStatus: { status: 'error', message: 'Device Disconnected' } 
@@ -198,35 +214,50 @@ export const useBluetoothStore = create<BluetoothState>((set, get) => ({
             return;
           }
 
-          const rawData = atob(characteristic?.value || '');
+          // Decode Base64
+          let rawData = "";
+          try {
+             rawData = atob(characteristic?.value || '');
+          } catch (e) {
+             console.log("Base64 Decode Error:", e);
+             return;
+          }
+
           dataBuffer += rawData;
 
+          // Process full lines (delimited by \n)
           if (dataBuffer.includes('\n')) {
              const parts = dataBuffer.split('\n');
+             // The last part might be incomplete, put it back in the buffer
              dataBuffer = parts.pop() || ""; 
 
              for (const part of parts) {
-               if (part.trim().length === 0) continue;
+               const cleanPart = part.trim();
+               if (cleanPart.length === 0) continue;
 
                try {
-                 const parsed = JSON.parse(part);
+                 const parsed = JSON.parse(cleanPart);
                  console.log("Parsed Data from ESP32:", parsed);
 
-                 // Mapping ESP32 keys "m", "b" to our "moisture", "battery" structure.
-                 // Also checking for "status" messages for pump state.
-                 
-                 const isPumpOn = parsed.isPumpOn ?? (parsed.status === 'ON' ? true : (parsed.status === 'OFF' ? false : undefined));
+                 // Update State based on ESP32 keys: 'm' (moisture), 'b' (battery), 'isPumpOn'/'status'
+                 set((state) => {
+                   // Determine pump status from either explicit boolean or status string
+                   const incomingPumpState = parsed.isPumpOn ?? (
+                       parsed.status === 'ON' ? true : 
+                       (parsed.status === 'OFF' ? false : undefined)
+                   );
 
-                 set((state) => ({
-                   telemetry: {
-                     moisture: parsed.m ?? state.telemetry.moisture,
-                     battery: parsed.b ?? state.telemetry.battery,
-                     isPumpOn: isPumpOn !== undefined ? isPumpOn : state.telemetry.isPumpOn
-                   }
-                 }));
+                   return {
+                     telemetry: {
+                       moisture: parsed.m !== undefined ? parsed.m : state.telemetry.moisture,
+                       battery: parsed.b !== undefined ? parsed.b : state.telemetry.battery,
+                       isPumpOn: incomingPumpState !== undefined ? incomingPumpState : state.telemetry.isPumpOn
+                     }
+                   };
+                 });
 
                } catch (e) {
-                 console.log('JSON Parse Error:', e, 'Raw Part:', part);
+                 console.log('JSON Parse Error:', e, 'Raw Part:', cleanPart);
                }
              }
           }
@@ -261,8 +292,6 @@ export const useBluetoothStore = create<BluetoothState>((set, get) => ({
     });
   },
 
-  // UPDATED SEND COMMAND
-  // Now supports both ("ON", 10) format and ('{"auto_ctrl": true}') format.
   sendCommand: async (commandOrJson: string, duration?: number) => {
     const { connectedDevice } = get();
     if (!connectedDevice && !SIMULATION_MODE) {
@@ -270,10 +299,10 @@ export const useBluetoothStore = create<BluetoothState>((set, get) => ({
         return;
     }
 
-    // 1. Prepare Payload to Send
+    // 1. Prepare Payload
     let payload = commandOrJson;
 
-    // If parameter is not in JSON format (e.g., just "ON"), convert to legacy JSON format
+    // Convert simple commands (e.g., "ON") to JSON format
     if (!commandOrJson.startsWith('{')) {
         payload = JSON.stringify({ command: commandOrJson, duration: duration || 0 });
     }
@@ -282,17 +311,17 @@ export const useBluetoothStore = create<BluetoothState>((set, get) => ({
     if (SIMULATION_MODE) {
         set({ connectionStatus: { status: 'sending', message: 'Sending command...' } });
         
-        // Update pump state in simulation
         try {
             const parsed = JSON.parse(payload);
             if (parsed.command === 'ON') {
                 set((state) => ({ telemetry: { ...state.telemetry, isPumpOn: true } }));
                 
-                // Auto-off simulation
+                // Simulate auto-off
                 const dur = parsed.duration || 5;
-                setTimeout(() => {
+                const timeout = setTimeout(() => {
                     set((state) => ({ telemetry: { ...state.telemetry, isPumpOn: false } }));
                 }, dur * 1000);
+                set({ simulationPumpTimeout: timeout });
             }
         } catch (e) {}
 
